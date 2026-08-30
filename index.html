@@ -35,6 +35,24 @@
   --radius-pill:999px;
   --ease:cubic-bezier(0.16,1,0.3,1);
 }
+:root.theme-light{
+  --bg:#F7F3ED;
+  --bg-2:#FFFFFF;
+  --glass:rgba(30,24,18,.04);
+  --glass-strong:rgba(30,24,18,.07);
+  --hairline:rgba(20,16,12,.10);
+  --ink:#2A2420;
+  --ink-2:#6B615C;
+  --ink-3:#9C928D;
+  --accent:#D96B45;
+  --accent-hover:#C85D38;
+  --accent-quiet:rgba(217,107,69,.12);
+  --on-accent:#FFFFFF;
+  --jade:#4C9385;
+  --grid:rgba(20,16,12,.08);
+  --error:#B34E2C;
+  --error-quiet:rgba(179,78,44,.12);
+}
 *{box-sizing:border-box;}
 html,body{height:100%;}
 body{
@@ -623,6 +641,9 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-add-chart"/></svg>
   </button>
   <div class="filter-pills" id="filterPills" hidden></div>
+  <button type="button" class="icon-btn" id="themeToggleBtn" title="Switch to light theme" aria-label="Switch to light theme">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun"/></svg>
+  </button>
 </header>
 
 <main>
@@ -724,38 +745,62 @@ var PALETTE = {
 };
 PALETTE.tooltipBg = hexToRgba(PALETTE.bg2, 0.92);
 
-function registerKilnTheme(){
-  echarts.registerTheme('kiln', {
+function registerChartTheme(name, palette){
+  echarts.registerTheme(name, {
     color: KILN_CATEGORICAL,
     backgroundColor: 'transparent',
-    textStyle: { fontFamily: 'DM Sans, sans-serif', color: PALETTE.ink },
+    textStyle: { fontFamily: 'DM Sans, sans-serif', color: palette.ink },
     animationDuration: 420,
     animationEasing: 'cubicOut',
     animationEasingUpdate: 'cubicOut',
     tooltip: {
-      backgroundColor: PALETTE.tooltipBg,
-      borderColor: PALETTE.grid,
+      backgroundColor: palette.tooltipBg,
+      borderColor: palette.grid,
       borderWidth: 1,
-      textStyle: { color: PALETTE.ink, fontFamily: 'DM Sans, sans-serif', fontSize: 13 },
+      textStyle: { color: palette.ink, fontFamily: 'DM Sans, sans-serif', fontSize: 13 },
       extraCssText: 'backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:12px;padding:10px 14px;box-shadow:0 24px 48px -24px rgba(0,0,0,.55);'
     },
     legend: {
-      textStyle: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
+      textStyle: { color: palette.ink2, fontFamily: 'DM Sans, sans-serif' },
       icon: 'circle'
     },
     categoryAxis: {
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
+      axisLabel: { color: palette.ink2, fontFamily: 'DM Sans, sans-serif' },
       splitLine: { show: false }
     },
     valueAxis: {
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
-      splitLine: { lineStyle: { color: PALETTE.grid, type: 'dashed' } }
+      axisLabel: { color: palette.ink2, fontFamily: 'DM Sans, sans-serif' },
+      splitLine: { lineStyle: { color: palette.grid, type: 'dashed' } }
     }
   });
+}
+
+function paletteForTheme(lightMode){
+  var root = document.documentElement;
+  var hadClass = root.classList.contains('theme-light');
+  if (lightMode !== hadClass) root.classList.toggle('theme-light');
+  var palette = {
+    ink: readCSSVar('--ink'),
+    ink2: readCSSVar('--ink-2'),
+    bg2: readCSSVar('--bg-2'),
+    grid: readCSSVar('--grid')
+  };
+  palette.tooltipBg = hexToRgba(palette.bg2, 0.92);
+  if (lightMode !== hadClass) root.classList.toggle('theme-light');
+  return palette;
+}
+
+function currentThemeName(){
+  return document.documentElement.classList.contains('theme-light') ? 'paper' : 'kiln';
+}
+
+function registerKilnTheme(){
+  registerChartTheme('kiln', PALETTE);
+  registerChartTheme('paper', paletteForTheme(true));
 }
 
 var Store = (function(){
@@ -1807,6 +1852,8 @@ UI.init = function(){
   UI.els.panelGrid = document.getElementById('panelGrid');
   UI.els.addChartBtn = document.getElementById('addChartBtn');
   UI.els.filterPills = document.getElementById('filterPills');
+  UI.els.themeToggleBtn = document.getElementById('themeToggleBtn');
+  UI.els.themeToggleBtn.addEventListener('click', UI.toggleTheme);
   UI.els.addChartBtn.addEventListener('click', UI.addChart);
   UI.els.inspector = document.getElementById('inspector');
   UI.els.inspectorClose = document.getElementById('inspectorClose');
@@ -2081,6 +2128,30 @@ UI.addChart = function(){
   });
 };
 
+UI.toggleTheme = function(){
+  var isLight = document.documentElement.classList.toggle('theme-light');
+  var iconUse = UI.els.themeToggleBtn.querySelector('use');
+  iconUse.setAttribute('href', isLight ? '#i-moon' : '#i-sun');
+  var label = isLight ? 'Switch to dark theme' : 'Switch to light theme';
+  UI.els.themeToggleBtn.setAttribute('title', label);
+  UI.els.themeToggleBtn.setAttribute('aria-label', label);
+
+  var themeName = currentThemeName();
+  var dataset = Store.get().dataset;
+  UI.panels.forEach(function(p){
+    if (!p.chart || !p.el) return;
+    p.chart.dispose();
+    p.chart = echarts.init(p.el, themeName, { renderer: 'canvas' });
+    if (dataset && p.spec) {
+      var mask = Filters.maskFor(p.id);
+      p.chart.setOption(Render.buildOption(p.spec, dataset.columns, mask), true);
+    }
+    UI.wireChartInteractions(p);
+  });
+  UI.connectPanelCharts();
+  try { localStorage.setItem('draw-theme', isLight ? 'light' : 'dark'); } catch (err) {}
+};
+
 UI.connectPanelCharts = function(){
   if (typeof echarts === 'undefined' || !echarts.connect) return;
   var charts = UI.panels.map(function(p){ return p.chart; }).filter(Boolean);
@@ -2091,7 +2162,7 @@ UI.initPanelChart = function(panel, columns){
   if (typeof echarts === 'undefined' || !panel.el || !panel.spec) return;
   var mask = Filters.maskFor(panel.id);
   var option = Render.buildOption(panel.spec, columns, mask);
-  panel.chart = echarts.init(panel.el, 'kiln', { renderer: 'canvas' });
+  panel.chart = echarts.init(panel.el, currentThemeName(), { renderer: 'canvas' });
   panel.chart.setOption(option, true);
   UI.wireChartInteractions(panel);
 };
@@ -2440,7 +2511,7 @@ UI.renderChart = function(spec, columns){
       return false;
     }
     var isNewChart = !UI.chart;
-    if (!UI.chart) UI.chart = echarts.init(activePanel.el, 'kiln', { renderer: 'canvas' });
+    if (!UI.chart) UI.chart = echarts.init(activePanel.el, currentThemeName(), { renderer: 'canvas' });
     UI.chart.setOption(option, true);
     UI.chart.resize();
     if (isNewChart) UI.wireChartInteractions(activePanel);
@@ -2593,7 +2664,7 @@ UI.exportSVG = function(panel){
   var offscreen = document.createElement('div');
   offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:800px;height:500px;';
   document.body.appendChild(offscreen);
-  var svgChart = echarts.init(offscreen, 'kiln', { renderer: 'svg' });
+  var svgChart = echarts.init(offscreen, currentThemeName(), { renderer: 'svg' });
   svgChart.setOption(panel.chart.getOption());
   var svgStr = typeof svgChart.renderToSVGString === 'function' ? svgChart.renderToSVGString() : null;
   svgChart.dispose();
@@ -2840,6 +2911,14 @@ UI.changeChartType = function(newType){
 
 document.addEventListener('DOMContentLoaded', function(){
   UI.init();
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem('draw-theme'); } catch (err) {}
+  if (savedTheme === 'light') {
+    document.documentElement.classList.add('theme-light');
+    UI.els.themeToggleBtn.querySelector('use').setAttribute('href', '#i-moon');
+    UI.els.themeToggleBtn.setAttribute('title', 'Switch to dark theme');
+    UI.els.themeToggleBtn.setAttribute('aria-label', 'Switch to dark theme');
+  }
   if (typeof echarts === 'undefined' || typeof Papa === 'undefined') {
     UI.showError('Draw couldn\u2019t load its charting libraries. Check your connection and reload the page.');
     return;
