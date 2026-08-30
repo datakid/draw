@@ -1,0 +1,2460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%2316131A'/%3E%3Cg%20transform='translate(4%204)'%20fill='none'%20stroke='%23F4EFE9'%20stroke-width='2.6'%20stroke-linecap='round'%3E%3Cpath%20d='M3.3%2018.4%203.9%2014.4'/%3E%3Cpath%20d='M8.3%2018.4%209.4%2011.6'/%3E%3Cpath%20d='M13.3%2018.4%2014.8%208.8'/%3E%3C/g%3E%3Ccircle%20cx='24.2'%20cy='10'%20r='1.9'%20fill='%23E07A55'/%3E%3C/svg%3E">
+<title>Draw — instant charts from any data file</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#16131A;
+  --bg-2:#1D1922;
+  --glass:rgba(255,248,240,.045);
+  --glass-strong:rgba(255,248,240,.075);
+  --hairline:rgba(255,240,226,.10);
+  --ink:#F4EFE9;
+  --ink-2:#B3A9A4;
+  --ink-3:#7A716F;
+  --accent:#E07A55;
+  --accent-hover:#EC8A63;
+  --accent-quiet:rgba(224,122,85,.14);
+  --on-accent:#1D1922;
+  --jade:#63B3A4;
+  --grid:rgba(255,240,226,.10);
+  --error:#C4633C;
+  --error-quiet:rgba(196,99,60,.14);
+  --font-display:'Instrument Serif',serif;
+  --font-ui:'DM Sans',sans-serif;
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;--sp-6:32px;--sp-7:48px;
+  --radius-card:22px;
+  --radius-control:14px;
+  --radius-pill:999px;
+  --ease:cubic-bezier(0.16,1,0.3,1);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-feature-settings:'tnum';
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0;font-weight:400;}
+p{margin:0;}
+button{font-family:inherit;}
+::selection{background:var(--accent-quiet);color:var(--ink);}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+.grain{position:fixed;inset:0;pointer-events:none;opacity:.025;mix-blend-mode:normal;z-index:9999;}
+body.is-chart-interacting .grain{display:none;}
+
+.topbar{
+  position:sticky;top:0;left:0;right:0;
+  height:64px;
+  display:flex;align-items:center;gap:12px;
+  padding:0 var(--sp-5);
+  background:var(--glass);
+  backdrop-filter:blur(24px) saturate(1.4);
+  -webkit-backdrop-filter:blur(24px) saturate(1.4);
+  border-bottom:1px solid var(--hairline);
+  z-index:50;
+}
+body.is-interacting .topbar{backdrop-filter:none;-webkit-backdrop-filter:none;}
+.wordmark{
+  font-family:var(--font-display);
+  font-style:italic;
+  font-size:26px;
+  letter-spacing:-.01em;
+  color:var(--ink);
+}
+.lockup{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);}
+.lockup-mark{width:24px;height:24px;color:var(--ink);flex-shrink:0;}
+.lockup:hover .lockup-mark{color:var(--accent);}
+.lockup-mark,.lockup .wordmark{transition:color .15s var(--ease);}
+.topbar-note{
+  margin-left:auto;font-size:12px;color:var(--ink-3);letter-spacing:.01em;
+}
+@media (max-width:640px){.topbar-note{display:none;}}
+.mk-b{transform-box:fill-box;transform-origin:bottom;animation:mkPulse 1.05s var(--ease) infinite;}
+.mk-b:nth-child(2){animation-delay:.12s;}
+.mk-b:nth-child(3){animation-delay:.24s;}
+.mk-d{transform-box:fill-box;transform-origin:center;animation:mkFade 1.05s var(--ease) infinite;animation-delay:.36s;}
+@keyframes mkPulse{0%,100%{transform:scaleY(.55);}45%{transform:scaleY(1);}}
+@keyframes mkFade{0%,100%{opacity:.25;}45%{opacity:1;}}
+.busy-mark{width:20px;height:20px;color:var(--ink-2);flex-shrink:0;}
+.busy-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2);}
+
+main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
+
+.onboarding{
+  display:none;
+  min-height:calc(100vh - 64px);
+  flex-direction:column;align-items:center;justify-content:center;
+  gap:var(--sp-4);
+  text-align:center;
+}
+.onboarding:not([hidden]){display:flex;}
+.dropzone{
+  width:100%;max-width:560px;
+  display:flex;flex-direction:column;align-items:center;gap:var(--sp-4);
+  padding:64px 48px;
+  background:var(--bg-2);
+  border:1px dashed var(--hairline);
+  border-radius:var(--radius-card);
+  transition:border-color .18s var(--ease),background .18s var(--ease);
+}
+.dropzone.is-dragover{border-color:var(--accent);background:var(--accent-quiet);}
+.dropzone-icon{color:var(--ink-3);width:40px;height:40px;}
+.dropzone h1{font-family:var(--font-display);font-style:italic;font-size:32px;line-height:1.15;color:var(--ink);}
+.dropzone p{color:var(--ink-2);font-size:15px;line-height:1.5;max-width:400px;}
+.dropzone-actions{display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);margin-top:var(--sp-2);}
+
+.btn-primary{
+  display:inline-flex;align-items:center;gap:var(--sp-2);
+  padding:12px 22px;
+  background:var(--accent);
+  color:var(--on-accent);
+  border:none;border-radius:var(--radius-pill);
+  font-size:14px;font-weight:600;
+  cursor:pointer;
+  transition:background .15s var(--ease);
+}
+.btn-primary:hover{background:var(--accent-hover);}
+
+.link-btn{
+  background:none;border:none;
+  color:var(--ink-2);
+  font-size:14px;
+  text-decoration:underline;text-underline-offset:3px;
+  cursor:pointer;
+  transition:color .15s var(--ease);
+}
+.link-btn:hover{color:var(--ink);}
+
+.onboarding-error{
+  margin-top:var(--sp-2);
+  max-width:480px;
+  padding:12px 16px;
+  background:var(--error-quiet);
+  border:1px solid rgba(196,99,60,.35);
+  border-radius:var(--radius-control);
+  color:var(--ink);
+  font-size:14px;
+  line-height:1.5;
+}
+
+.workspace{padding-top:var(--sp-6);}
+.workspace-row{display:flex;gap:var(--sp-5);align-items:flex-start;}
+.panel-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr;gap:var(--sp-5);}
+.panel-grid.has-2,.panel-grid.has-3,.panel-grid.has-4{grid-template-columns:repeat(2,1fr);}
+.chart-card.is-active{box-shadow:0 0 0 2px var(--accent),0 1px 0 rgba(255,255,255,.06) inset,0 24px 48px -24px rgba(0,0,0,.55);}
+.chart-card{
+  position:relative;
+  flex:1;min-width:0;
+  background:var(--bg-2);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-card);
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 24px 48px -24px rgba(0,0,0,.55);
+  padding:var(--sp-5);
+}
+.chart-toolbar{
+  position:absolute;top:var(--sp-4);right:var(--sp-4);
+  display:flex;gap:var(--sp-2);
+  opacity:0;
+  transition:opacity .18s var(--ease);
+  z-index:5;
+}
+.chart-card:hover .chart-toolbar,
+.chart-card:focus-within .chart-toolbar{opacity:1;}
+.icon-btn{
+  width:36px;height:36px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--glass-strong);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  color:var(--ink-2);
+  cursor:pointer;
+  transition:background .15s var(--ease),color .15s var(--ease);
+}
+.icon-btn:hover{background:var(--accent-quiet);color:var(--accent);}
+.icon-btn.is-danger:hover{background:var(--error-quiet);color:var(--error);}
+.icon-btn svg{width:18px;height:18px;}
+.chart-title{
+  font-family:var(--font-display);
+  font-style:italic;
+  font-weight:400;
+  font-size:20px;
+  color:var(--ink);
+  margin:0 40px var(--sp-4) 0;
+  padding:2px 6px;
+  border-radius:6px;
+  cursor:text;
+  outline:none;
+  display:inline-block;
+  max-width:100%;
+}
+.chart-title:hover{background:var(--glass);}
+.chart-title:focus{background:var(--accent-quiet);}
+.chart-canvas{width:100%;height:420px;}
+.workspace-hint{
+  margin-top:var(--sp-4);
+  color:var(--ink-3);
+  font-size:13px;
+  text-align:center;
+}
+
+.inspector{
+  width:300px;flex-shrink:0;
+  background:var(--glass-strong);
+  backdrop-filter:blur(24px) saturate(1.4);
+  -webkit-backdrop-filter:blur(24px) saturate(1.4);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-card);
+  padding:var(--sp-5);
+  position:sticky;top:88px;
+  max-height:calc(100vh - 112px);
+  overflow-y:auto;
+}
+.inspector-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:var(--sp-4);
+}
+.inspector-header h2{
+  font-family:var(--font-display);font-style:italic;font-size:20px;color:var(--ink);
+}
+.inspector-section{padding-top:var(--sp-4);margin-top:var(--sp-4);border-top:1px solid var(--hairline);}
+.inspector-section:first-of-type{padding-top:0;margin-top:0;border-top:none;}
+.inspector-section h3{
+  font-size:12px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--ink-3);margin-bottom:var(--sp-3);
+}
+.inspector-empty{color:var(--ink-3);font-size:13px;}
+.field-row{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--sp-4);}
+.field-row:last-child{margin-bottom:0;}
+.type-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4);}
+.type-tile{
+  position:relative;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  padding:var(--sp-3) var(--sp-2);
+  background:var(--glass);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  color:var(--ink-2);
+  cursor:pointer;
+  transition:background .15s var(--ease),border-color .15s var(--ease),opacity .15s var(--ease);
+}
+.type-tile:hover{background:var(--glass-strong);color:var(--ink);}
+.type-tile svg{width:22px;height:22px;}
+.type-tile span{font-size:11px;font-weight:500;}
+.type-tile.is-selected{border-color:var(--accent);color:var(--ink);background:var(--glass-strong);}
+.type-tile.is-unavailable{opacity:.4;}
+.type-tile .tile-badge{position:absolute;top:6px;right:6px;width:13px;height:13px;color:var(--accent);}
+.filter-pills{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.filter-pill{
+  display:flex;align-items:center;gap:6px;
+  padding:6px 10px;
+  background:var(--glass-strong);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-pill);
+  color:var(--ink);
+  font-size:12px;
+  cursor:pointer;
+  transition:background .15s var(--ease),border-color .15s var(--ease);
+}
+.filter-pill:hover{border-color:var(--accent);}
+.filter-pill .pill-x{color:var(--ink-3);font-size:13px;line-height:1;}
+.filter-pill:hover .pill-x{color:var(--ink);}
+.clear-filters-btn{font-size:12px;color:var(--ink-3);background:none;border:none;cursor:pointer;text-decoration:underline;padding:4px;}
+.clear-filters-btn:hover{color:var(--ink);}
+.field-row label{font-size:12px;color:var(--ink-3);}
+.field-row select,.field-row input[type=number]{
+  background:var(--glass-strong);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  padding:10px 12px;
+  color:var(--ink);
+  font-family:var(--font-ui);
+  font-size:14px;
+}
+.field-row input[type=range]{accent-color:var(--accent);width:100%;}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);}
+.toggle-row:last-child{margin-bottom:0;}
+.toggle-row label{font-size:14px;color:var(--ink-2);}
+.toggle-row input[type=checkbox]{accent-color:var(--accent);width:18px;height:18px;}
+
+@media (max-width:900px){
+  .workspace-row{flex-direction:column;}
+  .inspector{width:100%;position:static;max-height:none;}
+}
+
+.toast{
+  position:fixed;left:50%;bottom:28px;
+  transform:translate(-50%,12px);
+  padding:12px 20px;
+  background:var(--glass-strong);
+  backdrop-filter:blur(20px) saturate(1.4);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-pill);
+  color:var(--ink);
+  font-size:14px;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .18s var(--ease),transform .18s var(--ease);
+  z-index:100;
+}
+.toast.is-visible{opacity:1;transform:translate(-50%,0);}
+
+.modal-overlay{
+  display:none;
+  position:fixed;inset:0;
+  background:rgba(10,8,12,.55);
+  align-items:center;justify-content:center;
+  padding:var(--sp-5);
+  z-index:200;
+}
+.modal-overlay:not([hidden]){display:flex;}
+.modal{
+  width:100%;max-width:640px;
+  max-height:min(720px, 86vh);
+  display:flex;flex-direction:column;
+  background:var(--glass-strong);
+  backdrop-filter:blur(24px) saturate(1.4);
+  -webkit-backdrop-filter:blur(24px) saturate(1.4);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-card);
+  box-shadow:0 1px 0 rgba(255,255,255,.06) inset, 0 24px 48px -24px rgba(0,0,0,.55);
+  padding:var(--sp-5);
+}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-2);}
+.modal-header h2{font-family:var(--font-display);font-style:italic;font-size:22px;color:var(--ink);}
+.modal-hint{color:var(--ink-2);font-size:13px;margin-bottom:var(--sp-4);}
+.manual-grid-wrap{overflow:auto;flex:1;min-height:0;border:1px solid var(--hairline);border-radius:var(--radius-control);}
+table.manual-grid{border-collapse:collapse;width:100%;}
+table.manual-grid td{
+  border:1px solid var(--hairline);
+  padding:8px 10px;
+  font-size:13px;
+  color:var(--ink);
+  min-width:96px;
+  cursor:text;
+  outline:none;
+  white-space:nowrap;
+}
+table.manual-grid tr:first-child td{
+  font-weight:600;color:var(--ink);background:var(--glass);
+}
+table.manual-grid td:focus{background:var(--accent-quiet);}
+.modal-actions{display:flex;align-items:center;justify-content:space-between;margin-top:var(--sp-4);}
+.modal-actions-left{display:flex;gap:var(--sp-2);}
+.chip-btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;
+  background:var(--glass);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-pill);
+  color:var(--ink-2);
+  font-size:13px;font-weight:500;
+  cursor:pointer;
+  transition:background .15s var(--ease),color .15s var(--ease);
+}
+.chip-btn:hover{background:var(--accent-quiet);color:var(--accent);}
+.chip-btn svg{width:14px;height:14px;}
+
+@media (prefers-reduced-transparency: reduce){
+  .grain{display:none;}
+  .topbar,.toast,.inspector{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;background:var(--bg-2) !important;}
+}
+@media (prefers-reduced-motion: reduce){
+  *{transition-duration:.001ms !important;animation-duration:.001ms !important;}
+}
+@media (max-width:640px){
+  .dropzone{padding:48px 28px;}
+  .dropzone h1{font-size:26px;}
+  .chart-canvas{height:320px;}
+  main{padding:0 var(--sp-4) 64px;}
+  .panel-grid.has-2,.panel-grid.has-3,.panel-grid.has-4{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" focusable="false" width="0" height="0" style="position:absolute">
+  <defs>
+
+    <symbol id="i-mark" viewBox="0 0 24 24">
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round">
+        <path d="M3.3 18.4 3.9 14.4"/>
+        <path d="M8.3 18.4 9.4 11.6"/>
+        <path d="M13.3 18.4 14.8 8.8"/>
+      </g>
+      <circle cx="20.2" cy="6" r="1.7" fill="var(--accent)"/>
+    </symbol>
+
+    <symbol id="i-mark-busy" viewBox="0 0 24 24">
+      <g fill="currentColor">
+        <rect class="mk-b" x="2.0" y="12.6" width="2.6" height="7.1" rx="1.3" transform="skewX(-9)"/>
+        <rect class="mk-b" x="7.6" y="9.8"  width="2.6" height="9.9" rx="1.3" transform="skewX(-9)"/>
+        <rect class="mk-b" x="13.2" y="7.0" width="2.6" height="12.7" rx="1.3" transform="skewX(-9)"/>
+      </g>
+      <circle class="mk-d" cx="20.2" cy="6" r="1.7" fill="var(--accent)"/>
+    </symbol>
+
+    <symbol id="i-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v10"/>
+      <path d="m8 9.5 4 4 4-4"/>
+      <path d="M4 16.5v2A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-2"/>
+    </symbol>
+
+    <symbol id="i-chart-bar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M8.5 20v-5.5M13 20v-9.5M17.5 20v-7.5" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-line" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M7 16.5 10.6 12.5 13.8 14.9 20 8" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-area" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M7 16.5 10.6 12.5 13.8 14.9 20 8V20H7Z" fill="currentColor"
+            fill-opacity=".18" stroke="none"/>
+      <path d="M7 16.5 10.6 12.5 13.8 14.9 20 8" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-donut" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="7.6"/>
+      <circle cx="12" cy="12" r="3.2"/>
+      <path d="M12 4.4v3.4M18.6 15.8l-2.95-1.7"/>
+    </symbol>
+
+    <symbol id="i-chart-scatter" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <g fill="currentColor" stroke="none">
+        <circle cx="8.6" cy="15.6" r="1.45"/>
+        <circle cx="12.6" cy="10.6" r="1.45"/>
+        <circle cx="16.1" cy="14.1" r="1.45"/>
+        <circle cx="19.1" cy="8.1" r="1.45"/>
+      </g>
+    </symbol>
+
+    <symbol id="i-chart-histogram" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M6.8 20v-3M9.7 20v-6M12.6 20v-9M15.5 20v-5.5M18.4 20v-2.6" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-stacked" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M8.5 20v-3.5M8.5 15v-3M13 20v-4M13 14.5v-5M17.5 20v-2.5M17.5 16v-4" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-heatmap" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <rect x="4" y="4" width="4.7" height="4.7" rx="1.2" opacity=".9"/>
+      <rect x="9.7" y="4" width="4.7" height="4.7" rx="1.2" opacity=".35"/>
+      <rect x="15.4" y="4" width="4.7" height="4.7" rx="1.2" opacity=".6"/>
+      <rect x="4" y="9.7" width="4.7" height="4.7" rx="1.2" opacity=".35"/>
+      <rect x="9.7" y="9.7" width="4.7" height="4.7" rx="1.2" opacity=".75"/>
+      <rect x="15.4" y="9.7" width="4.7" height="4.7" rx="1.2" opacity=".9"/>
+      <rect x="4" y="15.4" width="4.7" height="4.7" rx="1.2" opacity=".6"/>
+      <rect x="9.7" y="15.4" width="4.7" height="4.7" rx="1.2" opacity=".3"/>
+      <rect x="15.4" y="15.4" width="4.7" height="4.7" rx="1.2" opacity=".5"/>
+    </symbol>
+
+    <symbol id="i-chart-treemap" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linejoin="round">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>
+      <path d="M12.5 4.5v15M12.5 12h8M3.5 14.5h9"/>
+    </symbol>
+
+    <symbol id="i-chart-boxplot" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <rect x="7" y="10" width="4" height="7" rx="1"/>
+      <path d="M9 10V6.5M9 17v2.5M15 20v-2.5"/>
+      <rect x="13" y="8" width="4" height="7" rx="1"/>
+      <path d="M15 8V5.5"/>
+    </symbol>
+
+    <symbol id="i-add-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3.25" y="4.25" width="17.5" height="15.5" rx="3.25" opacity=".45"/>
+      <path d="M12 8.5v7M8.5 12h7"/>
+    </symbol>
+
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="8.25" y="8.25" width="12" height="12" rx="3"/>
+      <path d="M15.75 4.25H6.5a2.25 2.25 0 0 0-2.25 2.25v9.25"/>
+    </symbol>
+
+    <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3.25" y="4.75" width="17.5" height="14.5" rx="3"/>
+      <circle cx="8.75" cy="9.75" r="1.6"/>
+      <path d="m3.6 17.2 4.7-4.3a2 2 0 0 1 2.7-.02L16 17.4M14.2 15.6l1.9-1.8a2 2 0 0 1 2.7-.02l1.9 1.7"/>
+    </symbol>
+
+    <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 7.5 4.5 12 9 16.5M15 7.5 19.5 12 15 16.5"/>
+    </symbol>
+
+    <symbol id="i-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linejoin="round">
+      <rect x="3.5" y="3.5" width="7.5" height="9" rx="2"/>
+      <rect x="13" y="3.5" width="7.5" height="5.5" rx="2"/>
+      <rect x="3.5" y="14.5" width="7.5" height="6" rx="2"/>
+      <rect x="13" y="11" width="7.5" height="9.5" rx="2"/>
+    </symbol>
+
+    <symbol id="i-table" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linejoin="round">
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>
+      <path d="M3.5 9.5h17M9.5 9.5v10M3.5 14.5h17"/>
+    </symbol>
+
+    <symbol id="i-sheets" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M7.5 6.5V5.25A1.75 1.75 0 0 1 9.25 3.5h9A1.75 1.75 0 0 1 20 5.25v9a1.75 1.75 0 0 1-1.75 1.75H17"/>
+      <rect x="4" y="7.5" width="13" height="13" rx="2.25"/>
+      <path d="M4 12h13M10.5 7.5v13" opacity=".55"/>
+    </symbol>
+
+    <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.5 5.5h15l-5.6 6.7v5.4l-3.8 2.1V12.2z"/>
+    </symbol>
+
+    <symbol id="i-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="8"/>
+      <path d="m9.5 9.5 5 5M14.5 9.5l-5 5"/>
+    </symbol>
+
+    <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.5 8.5h9.75a5.25 5.25 0 0 1 0 10.5H8"/>
+      <path d="m8 4.5-3.5 4 3.5 4"/>
+    </symbol>
+
+    <symbol id="i-redo" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19.5 8.5H9.75a5.25 5.25 0 0 0 0 10.5H16"/>
+      <path d="m16 4.5 3.5 4-3.5 4"/>
+    </symbol>
+
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4"/>
+      <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>
+    </symbol>
+
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2Z"/>
+    </symbol>
+
+    <symbol id="i-sparkle" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <path d="M12 3.5c.5 3.9 1.6 5 5.5 5.5-3.9.5-5 1.6-5.5 5.5-.5-3.9-1.6-5-5.5-5.5 3.9-.5 5-1.6 5.5-5.5Z"/>
+      <path d="M18.5 15c.25 1.85.8 2.4 2.65 2.65-1.85.25-2.4.8-2.65 2.65-.25-1.85-.8-2.4-2.65-2.65C17.7 17.4 18.25 16.85 18.5 15Z" opacity=".7"/>
+    </symbol>
+
+  </defs>
+</svg>
+<div class="grain" aria-hidden="true">
+  <svg width="100%" height="100%">
+    <filter id="grainFilter">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"></feTurbulence>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0"></feColorMatrix>
+    </filter>
+    <rect width="100%" height="100%" filter="url(#grainFilter)"></rect>
+  </svg>
+</div>
+
+<header class="topbar">
+  <a class="lockup" href="#" id="lockup" aria-label="Draw — home">
+    <svg class="lockup-mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark"/></svg>
+    <span class="wordmark">Draw</span>
+  </a>
+  <span class="topbar-note" id="topbarNote">Everything stays on your device</span>
+  <button type="button" class="icon-btn" id="addChartBtn" title="Add chart" aria-label="Add chart" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-add-chart"/></svg>
+  </button>
+  <div class="filter-pills" id="filterPills" hidden></div>
+</header>
+
+<main>
+  <section class="onboarding" id="onboarding">
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-drop"/></svg>
+      </div>
+      <h1>Drop a file to see it as a chart</h1>
+      <p>CSV, TSV, XLSX, and Parquet all work here. You can also paste a table straight from your clipboard.</p>
+      <div class="busy-row" id="dropzoneBusy" hidden>
+        <svg class="busy-mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark-busy"/></svg>
+        <span id="dropzoneBusyText"></span>
+      </div>
+      <div class="dropzone-actions">
+        <button type="button" class="btn-primary" id="fileButton">Choose a file</button>
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet" hidden>
+        <button type="button" class="link-btn" id="sampleBtn">Or try a sample dataset</button>
+        <button type="button" class="link-btn" id="manualBtn">Or type a table by hand</button>
+      </div>
+    </div>
+    <div class="onboarding-error" id="onboardingError" hidden></div>
+  </section>
+
+  <div class="modal-overlay" id="manualOverlay" hidden>
+    <div class="modal manual-modal" role="dialog" aria-modal="true" aria-labelledby="manualTitle">
+      <div class="modal-header">
+        <h2 id="manualTitle">Type a table</h2>
+        <button type="button" class="icon-btn" id="manualClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+        </button>
+      </div>
+      <p class="modal-hint">Click a cell to edit it. The first row is the column names.</p>
+      <div class="manual-grid-wrap">
+        <table class="manual-grid" id="manualGrid"></table>
+      </div>
+      <div class="modal-actions">
+        <div class="modal-actions-left">
+          <button type="button" class="chip-btn" id="manualAddRow">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Row
+          </button>
+          <button type="button" class="chip-btn" id="manualAddCol">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            Column
+          </button>
+        </div>
+        <button type="button" class="btn-primary" id="manualSubmit">Chart this</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="workspace" id="workspace" hidden>
+    <div class="workspace-row">
+      <div class="panel-grid" id="panelGrid"></div>
+      <aside class="inspector" id="inspector" hidden>
+        <div class="inspector-header">
+          <h2>Edit chart</h2>
+          <button type="button" class="icon-btn" id="inspectorClose" aria-label="Close editor">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="inspector-section" id="inspectorData"></div>
+        <div class="inspector-section" id="inspectorStyle"></div>
+      </aside>
+    </div>
+    <p class="workspace-hint">Drop a file or paste a table anywhere to replace this chart. Cmd/Ctrl+Z undoes the last edit.</p>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<div class="toast busy-row" id="workspaceBusy" hidden>
+  <svg class="busy-mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark-busy"/></svg>
+  <span id="workspaceBusyText"></span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.7.0/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"></script>
+<script>
+'use strict';
+var KILN_CATEGORICAL = ['#E07A55','#63B3A4','#E9B860','#9A86C9','#C4718E','#86A85F','#5E93BE','#CFA88C'];
+
+function readCSSVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+function hexToRgba(hex, alpha){
+  var h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map(function(c){ return c + c; }).join('');
+  var r = parseInt(h.substr(0,2), 16);
+  var g = parseInt(h.substr(2,2), 16);
+  var b = parseInt(h.substr(4,2), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+}
+var PALETTE = {
+  ink: readCSSVar('--ink'),
+  ink2: readCSSVar('--ink-2'),
+  bg2: readCSSVar('--bg-2'),
+  grid: readCSSVar('--grid')
+};
+PALETTE.tooltipBg = hexToRgba(PALETTE.bg2, 0.92);
+
+function registerKilnTheme(){
+  echarts.registerTheme('kiln', {
+    color: KILN_CATEGORICAL,
+    backgroundColor: 'transparent',
+    textStyle: { fontFamily: 'DM Sans, sans-serif', color: PALETTE.ink },
+    animationDuration: 420,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicOut',
+    tooltip: {
+      backgroundColor: PALETTE.tooltipBg,
+      borderColor: PALETTE.grid,
+      borderWidth: 1,
+      textStyle: { color: PALETTE.ink, fontFamily: 'DM Sans, sans-serif', fontSize: 13 },
+      extraCssText: 'backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:12px;padding:10px 14px;box-shadow:0 24px 48px -24px rgba(0,0,0,.55);'
+    },
+    legend: {
+      textStyle: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
+      icon: 'circle'
+    },
+    categoryAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
+      splitLine: { show: false }
+    },
+    valueAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: PALETTE.ink2, fontFamily: 'DM Sans, sans-serif' },
+      splitLine: { lineStyle: { color: PALETTE.grid, type: 'dashed' } }
+    }
+  });
+}
+
+var Store = (function(){
+  var state = { dataset: null, sourceName: null };
+  var subs = new Set();
+  function get(){ return state; }
+  function set(patch){
+    state = Object.assign({}, state, patch);
+    subs.forEach(function(fn){ fn(state); });
+  }
+  function subscribe(fn){ subs.add(fn); return function(){ subs.delete(fn); }; }
+  return { get: get, set: set, subscribe: subscribe };
+})();
+
+var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
+var SLASH_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+
+function cleanNumericString(v){
+  var s = String(v).trim();
+  var neg = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1).trim(); }
+  s = s.replace(/^[$\u20ac\u00a3]\s*/, '').replace(/\s*[$\u20ac\u00a3]$/, '').replace(/%$/, '');
+  s = s.replace(/[,\s']/g, '');
+  if (neg && s.charAt(0) !== '-') s = '-' + s;
+  return s;
+}
+function looksNumeric(v){
+  if (v === '' || v === null || v === undefined) return false;
+  if (typeof v === 'number') return isFinite(v);
+  if (typeof v === 'bigint') return true;
+  if (v instanceof Date) return false;
+  var cleaned = cleanNumericString(v);
+  if (cleaned === '' || cleaned === '-') return false;
+  return !isNaN(cleaned) && isFinite(cleaned);
+}
+function toNumeric(v){
+  if (typeof v === 'number') return v;
+  if (typeof v === 'bigint') return Number(v);
+  return parseFloat(cleanNumericString(v));
+}
+function looksDate(v){
+  if (v instanceof Date) return !isNaN(v.getTime());
+  if (typeof v === 'number' || typeof v === 'bigint') return false;
+  var s = String(v).trim();
+  return ISO_DATE_RE.test(s) || SLASH_DATE_RE.test(s);
+}
+function parseDateValue(v, dateOrder){
+  if (v instanceof Date) {
+    var tD = v.getTime();
+    return isNaN(tD) ? null : tD;
+  }
+  var s = String(v).trim();
+  if (ISO_DATE_RE.test(s)) {
+    var t1 = Date.parse(s.replace(' ', 'T'));
+    return isNaN(t1) ? null : t1;
+  }
+  if (SLASH_DATE_RE.test(s)) {
+    var parts = s.split('/');
+    var a = parseInt(parts[0],10), b = parseInt(parts[1],10), y = parseInt(parts[2],10);
+    var m, d;
+    if (dateOrder === 'DMY') { d = a; m = b; } else { m = a; d = b; }
+    if (y < 100) y += 2000;
+    var t2 = Date.UTC(y, m-1, d);
+    return isNaN(t2) ? null : t2;
+  }
+  return null;
+}
+function looksBoolean(v){
+  if (typeof v === 'boolean') return true;
+  var s = String(v).trim().toLowerCase();
+  return s === 'true' || s === 'false';
+}
+
+var Data = {};
+
+function inferColumnType(sampleValues){
+  var nonEmptySample = sampleValues.filter(function(v){ return v !== null && v !== undefined && String(v).trim() !== ''; });
+  var n = nonEmptySample.length || 1;
+  var numCount = 0, dateCount = 0, boolCount = 0;
+  nonEmptySample.forEach(function(v){
+    if (looksNumeric(v)) numCount++;
+    if (looksDate(v)) dateCount++;
+    if (looksBoolean(v)) boolCount++;
+  });
+  var type = 'category';
+  if (dateCount / n > 0.9) type = 'date';
+  else if (numCount / n > 0.9) type = 'number';
+  else if (boolCount / n > 0.9) type = 'boolean';
+  var dateOrder = 'MDY';
+  if (type === 'date') {
+    var isDMY = nonEmptySample.some(function(v){
+      var s = String(v).trim();
+      if (!SLASH_DATE_RE.test(s)) return false;
+      return parseInt(s.split('/')[0], 10) > 12;
+    });
+    if (isDMY) dateOrder = 'DMY';
+  }
+  return { type: type, dateOrder: dateOrder };
+}
+
+Data.buildColumnarStore = function(rows, fieldOrder){
+  var rawFields = (fieldOrder && fieldOrder.length) ? fieldOrder : (rows.length ? Object.keys(rows[0]) : []);
+  var seen = {};
+  var fields = rawFields.map(function(name){
+    if (seen[name]) { seen[name]++; return name + ' (' + seen[name] + ')'; }
+    seen[name] = 1;
+    return name;
+  });
+  var rowCount = rows.length;
+  var fieldCount = fields.length;
+
+  var sampleSize = Math.min(1000, rowCount);
+  var sampleIndices = [];
+  if (rowCount <= 1000) {
+    for (var si = 0; si < rowCount; si++) sampleIndices.push(si);
+  } else {
+    var stride = rowCount / sampleSize;
+    for (var sj = 0; sj < sampleSize; sj++) sampleIndices.push(Math.floor(sj * stride));
+  }
+  var colSamples = new Array(fieldCount);
+  for (var fi = 0; fi < fieldCount; fi++) colSamples[fi] = [];
+  for (var si2 = 0; si2 < sampleIndices.length; si2++){
+    var sr = rows[sampleIndices[si2]];
+    for (var fj = 0; fj < fieldCount; fj++) colSamples[fj].push(sr[rawFields[fj]]);
+  }
+  var colType = colSamples.map(inferColumnType);
+
+  var nullCounts = new Array(fieldCount).fill(0);
+  var numColMin = new Array(fieldCount).fill(Infinity);
+  var numColMax = new Array(fieldCount).fill(-Infinity);
+  var numColAllInt = new Array(fieldCount).fill(true);
+  var uniqueSets = new Array(fieldCount);
+  var levelsArr = new Array(fieldCount);
+  var levelIndexArr = new Array(fieldCount);
+  var encodedArr = new Array(fieldCount);
+  for (var ci = 0; ci < fieldCount; ci++){
+    if (colType[ci].type === 'number' || colType[ci].type === 'date') {
+      encodedArr[ci] = new Float64Array(rowCount);
+      uniqueSets[ci] = new Set();
+    } else {
+      encodedArr[ci] = new Int32Array(rowCount);
+      levelsArr[ci] = [];
+      levelIndexArr[ci] = new Map();
+    }
+  }
+
+  for (var ri = 0; ri < rowCount; ri++){
+    var row = rows[ri];
+    for (var cj = 0; cj < fieldCount; cj++){
+      var raw = row[rawFields[cj]];
+      var isEmpty = (raw === null || raw === undefined || String(raw).trim() === '');
+      var t = colType[cj].type;
+      if (isEmpty) {
+        nullCounts[cj]++;
+        encodedArr[cj][ri] = (t === 'number' || t === 'date') ? NaN : -1;
+        continue;
+      }
+      var trimmed = String(raw).trim();
+      if (t === 'number') {
+        uniqueSets[cj].add(trimmed);
+        if (looksNumeric(raw)) {
+          var nv = toNumeric(raw);
+          encodedArr[cj][ri] = nv;
+          if (numColAllInt[cj]) {
+            if (!Number.isInteger(nv)) { numColAllInt[cj] = false; }
+            else {
+              if (nv < numColMin[cj]) numColMin[cj] = nv;
+              if (nv > numColMax[cj]) numColMax[cj] = nv;
+            }
+          }
+        } else {
+          encodedArr[cj][ri] = NaN;
+          numColAllInt[cj] = false;
+        }
+      } else if (t === 'date') {
+        uniqueSets[cj].add(trimmed);
+        var tv = parseDateValue(raw, colType[cj].dateOrder);
+        encodedArr[cj][ri] = (tv === null) ? NaN : tv;
+      } else {
+        var idx = levelIndexArr[cj].get(trimmed);
+        if (idx === undefined) {
+          idx = levelsArr[cj].length;
+          levelsArr[cj].push(trimmed);
+          levelIndexArr[cj].set(trimmed, idx);
+        }
+        encodedArr[cj][ri] = idx;
+      }
+    }
+  }
+
+  var columns = fields.map(function(name, idx){
+    var type = colType[idx].type;
+    var total = (rowCount - nullCounts[idx]) || 1;
+    var uniqueCount = (type === 'number' || type === 'date') ? uniqueSets[idx].size : levelsArr[idx].length;
+    var cardinality = 'low';
+    if (uniqueCount > 50) cardinality = 'high';
+    else if (uniqueCount > 12) cardinality = 'medium';
+    var idLike = type !== 'number' && total > 20 && (uniqueCount / total) > 0.95;
+    if (type === 'number' && total > 20 && (uniqueCount / total) > 0.95 && numColAllInt[idx]) {
+      var nameLooksId = /^(id|_id|uuid|guid|key|index|row|no|num)$|(^|[_\s])id$/i.test(String(name).trim());
+      var range = numColMax[idx] - numColMin[idx] + 1;
+      var nearContiguous = range > 0 && (uniqueCount / range) >= 0.9;
+      idLike = nameLooksId || nearContiguous;
+    }
+    var result = {
+      name: name,
+      type: type,
+      uniqueCount: uniqueCount,
+      cardinality: cardinality,
+      idLike: idLike,
+      nullCount: nullCounts[idx],
+      values: encodedArr[idx]
+    };
+    if (type === 'category' || type === 'boolean') result.levels = levelsArr[idx];
+    return result;
+  });
+  return { rowCount: rowCount, columns: columns };
+};
+
+Data.fromCSVText = function(text, onDone){
+  if (typeof Papa === 'undefined') {
+    onDone({ ok: false, message: 'Draw couldn\u2019t load its CSV parser. Check your connection and reload the page.' });
+    return;
+  }
+  Papa.parse(text, {
+    header: true,
+    skipEmptyLines: true,
+    complete: function(res){ onDone({ ok: true, rows: res.data, fields: res.meta.fields }); },
+    error: function(err){ onDone({ ok: false, message: 'Couldn\u2019t read that data.' }); }
+  });
+};
+
+var CSV_WORKER_SRC = "importScripts('https://cdn.jsdelivr.net/npm/papaparse@5.7.0/papaparse.min.js');self.onmessage=function(e){Papa.parse(e.data,{header:true,skipEmptyLines:true,complete:function(res){self.postMessage({ok:true,rows:res.data,fields:res.meta.fields});},error:function(err){self.postMessage({ok:false,message:'Couldn\\u2019t read that file.'});}});};";
+
+Data.fromFileMainThread = function(file, onDone){
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    chunkSize: 1024 * 1024,
+    complete: function(res){ onDone({ ok: true, rows: res.data, fields: res.meta.fields }); },
+    error: function(err){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); }
+  });
+};
+
+Data.fromDelimitedFile = function(file, onDone){
+  if (typeof Papa === 'undefined') {
+    onDone({ ok: false, message: 'Draw couldn\u2019t load its CSV parser. Check your connection and reload the page.' });
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    try {
+      var blob = new Blob([CSV_WORKER_SRC], { type: 'application/javascript' });
+      var worker = new Worker(URL.createObjectURL(blob));
+      var settled = false;
+      var timeoutId = setTimeout(function(){
+        if (settled) return;
+        settled = true;
+        worker.terminate();
+        Data.fromFileMainThread(file, onDone);
+      }, 10000);
+      worker.onmessage = function(e){
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        worker.terminate();
+        onDone(e.data);
+      };
+      worker.onerror = function(){
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutId);
+        worker.terminate();
+        Data.fromFileMainThread(file, onDone);
+      };
+      worker.postMessage(file);
+      return;
+    } catch (err) {
+      Data.fromFileMainThread(file, onDone);
+      return;
+    }
+  }
+  Data.fromFileMainThread(file, onDone);
+};
+
+Data.loadXLSXLib = function(cb){
+  if (typeof XLSX !== 'undefined') { cb(true); return; }
+  if (Data._xlsxLoading) { Data._xlsxLoading.push(cb); return; }
+  Data._xlsxLoading = [cb];
+  var s = document.createElement('script');
+  s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  s.onload = function(){
+    var ok = typeof XLSX !== 'undefined';
+    Data._xlsxLoading.forEach(function(fn){ fn(ok); });
+    Data._xlsxLoading = null;
+  };
+  s.onerror = function(){
+    Data._xlsxLoading.forEach(function(fn){ fn(false); });
+    Data._xlsxLoading = null;
+  };
+  document.head.appendChild(s);
+};
+
+Data.fromXLSXFile = function(file, onDone){
+  Data.loadXLSXLib(function(ok){
+    if (!ok) {
+      onDone({ ok: false, message: 'Draw couldn\u2019t load the spreadsheet reader. Check your connection and try again.' });
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e){
+      try {
+        var wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+        var sheetName = wb.SheetNames[0];
+        var sheet = wb.Sheets[sheetName];
+        var rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
+        var fields = rows.length ? Object.keys(rows[0]) : (sheet['!ref'] ? [] : []);
+        var note = wb.SheetNames.length > 1 ? 'Using sheet \u201c' + sheetName + '\u201d \u2014 other sheets aren\u2019t read yet.' : null;
+        onDone({ ok: true, rows: rows, fields: fields, note: note });
+      } catch (err) {
+        onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' });
+      }
+    };
+    reader.onerror = function(){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); };
+    reader.readAsArrayBuffer(file);
+  });
+};
+
+Data.asyncBufferFromFile = function(file){
+  return {
+    byteLength: file.size,
+    slice: function(start, end){ return file.slice(start, end).arrayBuffer(); }
+  };
+};
+
+Data.fromParquetFile = function(file, onDone){
+  var hyparquetUrl = 'https://cdn.jsdelivr.net/npm/hyparquet@1.28.1/+esm';
+  var compressorsUrl = 'https://cdn.jsdelivr.net/npm/hyparquet-compressors@1.1.1/+esm';
+  Promise.all([import(hyparquetUrl), import(compressorsUrl)])
+    .then(function(mods){
+      var parquetReadObjects = mods[0].parquetReadObjects;
+      var compressors = mods[1].compressors;
+      var buf = Data.asyncBufferFromFile(file);
+      return parquetReadObjects({ file: buf, compressors: compressors });
+    })
+    .then(function(rows){
+      if (!rows.length) { onDone({ ok: false, message: 'That Parquet file doesn\u2019t have any rows to chart.' }); return; }
+      var fields = Object.keys(rows[0]);
+      onDone({ ok: true, rows: rows, fields: fields });
+    })
+    .catch(function(err){
+      var offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
+      var isLocalFile = (typeof location !== 'undefined' && location.protocol === 'file:');
+      var extra = offline ? ' You appear to be offline \u2014 Parquet support needs a network connection.'
+        : (isLocalFile ? ' Parquet support needs a network connection the first time it\u2019s used, even when this page is opened from disk.' : '');
+      onDone({ ok: false, message: 'Couldn\u2019t read that Parquet file.' + extra });
+    });
+};
+
+Data.fromFile = function(file, onDone){
+  var ext = (file.name.split('.').pop() || '').toLowerCase();
+  if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
+    Data.fromDelimitedFile(file, onDone);
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    Data.fromXLSXFile(file, onDone);
+  } else if (ext === 'parquet') {
+    Data.fromParquetFile(file, onDone);
+  } else {
+    onDone({ ok: false, message: file.name + ' isn\u2019t supported yet. Draw reads CSV, TSV, XLSX, and Parquet.' });
+  }
+};
+
+function findColumn(columns, name){
+  for (var i=0;i<columns.length;i++){ if (columns[i].name === name) return columns[i]; }
+  return null;
+}
+function titleCase(s){
+  return String(s).replace(/[_\-]+/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }).trim();
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+function handleContentEditablePaste(e){
+  e.preventDefault();
+  var text = (e.clipboardData || window.clipboardData).getData('text/plain').replace(/\r\n|\r|\n/g, ' ');
+  document.execCommand('insertText', false, text);
+}
+
+var Spec = {};
+
+Spec.formatCompact = function(n){
+  if (n === null || n === undefined || isNaN(n)) return '\u2014';
+  var abs = Math.abs(n);
+  if (abs >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
+  if (abs >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
+  if (abs >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(2);
+};
+
+var AVG_NAME_RE = /rate|ratio|percent|avg|average|score|age|temp|price|per[_\s]/i;
+var CURRENCY_NAME_RE = /price|cost|revenue|amount|sales|spend|budget|income|fee/i;
+
+Spec.pickAggregation = function(columnName){ return AVG_NAME_RE.test(columnName) ? 'avg' : 'sum'; };
+Spec.isCurrency = function(columnName){ return CURRENCY_NAME_RE.test(columnName); };
+Spec.usableColumns = function(columns){ return columns.filter(function(c){ return !c.idLike; }); };
+
+function columnAllPositive(col){
+  for (var i=0;i<col.values.length;i++){
+    var v = col.values[i];
+    if (!isNaN(v) && v < 0) return false;
+  }
+  return true;
+}
+
+Spec.regenerateTitle = function(spec){
+  var aggLabel = null;
+  if (spec.aggregation === 'avg') aggLabel = 'Average';
+  else if (spec.aggregation === 'count' && spec.yField) aggLabel = 'Count';
+
+  if (spec.type === 'line' || spec.type === 'area') {
+    if (!spec.yField) return 'Over Time';
+    return (aggLabel ? aggLabel + ' ' : '') + titleCase(spec.yField) + ' Over Time';
+  }
+  if (spec.type === 'bar' || spec.type === 'donut') {
+    if (!spec.yField) return 'Count by ' + titleCase(spec.xField);
+    return (aggLabel ? aggLabel + ' ' : '') + titleCase(spec.yField) + ' by ' + titleCase(spec.xField);
+  }
+  if (spec.type === 'scatter') return titleCase(spec.xField) + ' vs ' + titleCase(spec.yField);
+  if (spec.type === 'histogram') return 'Distribution of ' + titleCase(spec.xField);
+  return 'Untitled chart';
+};
+
+Spec.axisLabel = function(spec){
+  if (spec.type === 'histogram') return 'Frequency';
+  var aggLabel = null;
+  if (spec.aggregation === 'avg') aggLabel = 'Average';
+  else if (spec.aggregation === 'count') aggLabel = 'Count';
+  if (!spec.yField) return aggLabel || 'Count';
+  return (aggLabel ? aggLabel + ' ' : '') + titleCase(spec.yField);
+};
+
+Spec.buildTimeSeries = function(dateCol, numCol){
+  var agg = Spec.pickAggregation(numCol.name);
+  var allPositive = columnAllPositive(numCol);
+  var spec = {
+    type: allPositive ? 'area' : 'line',
+    xField: dateCol.name,
+    yField: numCol.name,
+    aggregation: agg,
+    currency: Spec.isCurrency(numCol.name),
+    showPoints: true
+  };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.buildCategoryNumeric = function(catCol, numCol){
+  var agg = Spec.pickAggregation(numCol.name);
+  var allPositive = columnAllPositive(numCol);
+  var isDonut = catCol.cardinality === 'low' && allPositive;
+  var spec = {
+    type: isDonut ? 'donut' : 'bar',
+    xField: catCol.name,
+    yField: numCol.name,
+    aggregation: agg,
+    currency: Spec.isCurrency(numCol.name),
+    showLabels: false
+  };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.buildScatter = function(colA, colB){
+  var spec = { type: 'scatter', xField: colA.name, yField: colB.name, pointSize: 8 };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.buildCategoryCount = function(catCol){
+  var spec = { type: 'bar', xField: catCol.name, yField: null, aggregation: 'count', showLabels: false };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.buildHistogram = function(numCol){
+  var spec = { type: 'histogram', xField: numCol.name, buckets: 16 };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.candidates = function(columns){
+  var usable = Spec.usableColumns(columns);
+  var numeric = usable.filter(function(c){ return c.type === 'number'; });
+  var dates = usable.filter(function(c){ return c.type === 'date'; });
+  var categories = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+  var lowCat = categories.filter(function(c){ return c.uniqueCount <= 8; });
+
+  function penalty(cols){
+    return cols.some(function(c){ return c.cardinality === 'high'; }) ? 30 : 0;
+  }
+
+  var candidates = [];
+
+  if (dates.length && numeric.length) {
+    var dc = dates[0], dn = numeric[0];
+    candidates.push({
+      spec: Spec.buildTimeSeries(dc, dn),
+      score: 100 - penalty([dc, dn]),
+      reason: 'date + numeric \u2192 time series'
+    });
+  }
+
+  if (lowCat.length && numeric.length && columnAllPositive(numeric[0])) {
+    var donutCat = lowCat[0], donutNum = numeric[0];
+    candidates.push({
+      spec: Spec.buildCategoryNumeric(donutCat, donutNum),
+      score: 85 - penalty([donutCat, donutNum]),
+      reason: 'low-cardinality category (\u2264 8) + all-positive numeric \u2192 donut'
+    });
+  }
+
+  if (categories.length && numeric.length) {
+    var barCat = categories[0], barNum = numeric[0];
+    var agg = Spec.pickAggregation(barNum.name);
+    var barSpec = {
+      type: 'bar',
+      xField: barCat.name,
+      yField: barNum.name,
+      aggregation: agg,
+      currency: Spec.isCurrency(barNum.name),
+      showLabels: false
+    };
+    barSpec.title = Spec.regenerateTitle(barSpec);
+    candidates.push({
+      spec: barSpec,
+      score: 80 - penalty([barCat, barNum]),
+      reason: 'category + numeric \u2192 horizontal bar'
+    });
+  }
+
+  if (numeric.length >= 2) {
+    var na = numeric[0], nb = numeric[1];
+    candidates.push({
+      spec: Spec.buildScatter(na, nb),
+      score: 60 - penalty([na, nb]),
+      reason: 'two numerics \u2192 scatter'
+    });
+  }
+
+  if (categories.length) {
+    var countCat = categories[0];
+    candidates.push({
+      spec: Spec.buildCategoryCount(countCat),
+      score: 50 - penalty([countCat]),
+      reason: 'one category \u2192 count bar'
+    });
+  }
+
+  if (numeric.length) {
+    var histNum = numeric[0];
+    candidates.push({
+      spec: Spec.buildHistogram(histNum),
+      score: 40 - penalty([histNum]),
+      reason: 'one numeric \u2192 histogram'
+    });
+  }
+
+  candidates.sort(function(a, b){ return b.score - a.score; });
+  return candidates;
+};
+
+Spec.autoRecommend = function(columns){
+  var top = Spec.candidates(columns)[0];
+  return top && top.spec;
+};
+
+Spec.applyTopN = function(rows, n, aggregation){
+  if (rows.length <= n) return rows;
+  var top = rows.slice(0, n);
+  var rest = rows.slice(n);
+  var otherValue;
+  if (aggregation === 'avg') {
+    var totalWeight = rest.reduce(function(sum, r){ return sum + (r.count || 0); }, 0);
+    var weightedSum = rest.reduce(function(sum, r){ return sum + r.value * (r.count || 0); }, 0);
+    otherValue = totalWeight ? weightedSum / totalWeight : 0;
+  } else {
+    otherValue = rest.reduce(function(sum, r){ return sum + r.value; }, 0);
+  }
+  top.push({ label: 'Other', value: otherValue });
+  return top;
+};
+
+Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation, mask){
+  var catCol = findColumn(columns, catFieldName);
+  var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
+  var n = catCol.values.length;
+  var sums = new Map();
+  var counts = new Map();
+  for (var i=0;i<n;i++){
+    if (mask && !mask[i]) continue;
+    var idx = catCol.values[i];
+    if (idx < 0) continue;
+    var label = catCol.levels[idx];
+    var v = numCol ? numCol.values[i] : 1;
+    if (numCol && aggregation !== 'count' && isNaN(v)) continue;
+    sums.set(label, (sums.get(label) || 0) + (isNaN(v) ? 0 : v));
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  var labels = Array.from(sums.keys());
+  var result = labels.map(function(label){
+    var count = counts.get(label);
+    var value;
+    if (aggregation === 'avg') value = sums.get(label) / count;
+    else if (aggregation === 'count') value = count;
+    else value = sums.get(label);
+    return { label: label, value: value, count: count };
+  });
+  result.sort(function(a,b){ return b.value - a.value; });
+  return result;
+};
+
+function monthKey(ms){
+  var d = new Date(ms);
+  var m = d.getUTCMonth() + 1;
+  return d.getUTCFullYear() + '-' + (m < 10 ? '0'+m : m);
+}
+function dayKey(ms){ return new Date(ms).toISOString().slice(0,10); }
+function weekKey(ms){
+  var d = new Date(ms);
+  var day = d.getUTCDay();
+  var diff = (day === 0 ? -6 : 1) - day;
+  var monday = new Date(d.getTime());
+  monday.setUTCDate(d.getUTCDate() + diff);
+  return monday.toISOString().slice(0,10);
+}
+function quarterKey(ms){
+  var d = new Date(ms);
+  var q = Math.floor(d.getUTCMonth() / 3) + 1;
+  return d.getUTCFullYear() + '-Q' + q;
+}
+
+Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask){
+  var dateCol = findColumn(columns, dateFieldName);
+  var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
+  var n = dateCol.values.length;
+
+  if (!dateCol._bucketKeys) {
+    var minT = Infinity, maxT = -Infinity;
+    var dayKeySet = new Set();
+    for (var i=0;i<n;i++){
+      var t0 = dateCol.values[i];
+      if (!isNaN(t0)) {
+        if (t0 < minT) minT = t0;
+        if (t0 > maxT) maxT = t0;
+        dayKeySet.add(dayKey(t0));
+      }
+    }
+    var spanDays = (maxT - minT) / 86400000;
+    var isDaily = dayKeySet.size >= spanDays * 0.8;
+    var keyFn;
+    if (spanDays <= 60) keyFn = dayKey;
+    else if (spanDays < 200 && isDaily) keyFn = weekKey;
+    else if (spanDays <= 400) keyFn = monthKey;
+    else keyFn = quarterKey;
+
+    var precomputed = new Array(n);
+    for (var k=0;k<n;k++){
+      var tk = dateCol.values[k];
+      precomputed[k] = isNaN(tk) ? null : keyFn(tk);
+    }
+    dateCol._bucketKeys = precomputed;
+  }
+
+  var bucketKeys = dateCol._bucketKeys;
+  var sums = new Map(); var counts = new Map();
+  for (var j=0;j<n;j++){
+    if (mask && !mask[j]) continue;
+    var key = bucketKeys[j];
+    if (key === null) continue;
+    var v = numCol ? numCol.values[j] : 1;
+    if (numCol && isNaN(v)) continue;
+    sums.set(key, (sums.get(key) || 0) + v);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  var keys = Array.from(sums.keys()).sort();
+  return keys.map(function(k){
+    var value;
+    if (aggregation === 'avg') value = sums.get(k) / counts.get(k);
+    else if (aggregation === 'count') value = counts.get(k);
+    else value = sums.get(k);
+    return { label: k, value: value };
+  });
+};
+
+var Filters = { list: [], _masks: {} };
+
+Filters.rowPasses = function(columns, rowIndex, filterList){
+  for (var i = 0; i < filterList.length; i++){
+    var f = filterList[i];
+    var col = findColumn(columns, f.field);
+    if (f.kind === 'value') {
+      var levelIdx = col.values[rowIndex];
+      var label = (levelIdx >= 0 && col.levels) ? col.levels[levelIdx] : null;
+      if (label !== f.payload) return false;
+    } else {
+      var v = col.values[rowIndex];
+      if (isNaN(v) || v < f.payload[0] || v > f.payload[1]) return false;
+    }
+  }
+  return true;
+};
+
+Filters.recompute = function(columns, rowCount, panelIds){
+  Filters._masks = {};
+  if (!Filters.list.length) return;
+  panelIds.forEach(function(pid){
+    var relevant = Filters.list.filter(function(f){ return f.panelId !== pid; });
+    if (!relevant.length) { Filters._masks[pid] = null; return; }
+    var mask = new Uint8Array(rowCount);
+    for (var i = 0; i < rowCount; i++) mask[i] = Filters.rowPasses(columns, i, relevant) ? 1 : 0;
+    Filters._masks[pid] = mask;
+  });
+};
+
+Filters.maskFor = function(panelId){
+  return Filters.list.length ? (Filters._masks[panelId] || null) : null;
+};
+
+Filters.add = function(panelId, field, kind, payload){
+  var idx = -1;
+  for (var i = 0; i < Filters.list.length; i++){
+    var f = Filters.list[i];
+    if (f.panelId === panelId && f.field === field && f.kind === kind && JSON.stringify(f.payload) === JSON.stringify(payload)) { idx = i; break; }
+  }
+  if (idx >= 0) {
+    Filters.list.splice(idx, 1);
+  } else {
+    Filters.list = Filters.list.filter(function(f){ return f.panelId !== panelId; });
+    Filters.list.push({ panelId: panelId, field: field, kind: kind, payload: payload });
+  }
+};
+
+Filters.removeAt = function(index){
+  Filters.list.splice(index, 1);
+};
+
+Filters.clearAll = function(){
+  Filters.list = [];
+  Filters._masks = {};
+};
+
+var Render = {};
+
+Render.buildOption = function(spec, columns, mask){
+  var currency = spec.currency;
+  var fmt = function(v){ return (currency ? '$' : '') + Spec.formatCompact(v); };
+
+  if (spec.type === 'line' || spec.type === 'area') {
+    var tsRows = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask);
+    var showPoints = spec.showPoints !== false;
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
+      xAxis: { type: 'category', data: tsRows.map(function(r){ return r.label; }) },
+      yAxis: { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } },
+      series: [{
+        type: 'line',
+        smooth: true,
+        symbol: showPoints ? 'circle' : 'none',
+        symbolSize: 6,
+        areaStyle: spec.type === 'area' ? { opacity: 0.18 } : null,
+        data: tsRows.map(function(r){ return r.value; })
+      }],
+      tooltip: { trigger: 'axis', valueFormatter: fmt }
+    };
+  }
+
+  if (spec.type === 'bar') {
+    var rows = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask);
+    rows = Spec.applyTopN(rows, 12, spec.aggregation);
+    var horizontal = rows.length > 8;
+    var showLabels = !!spec.showLabels;
+    var option = {
+      grid: { left: 16, right: 24, top: 24, bottom: 24, containLabel: true },
+      series: [{
+        type: 'bar',
+        barMaxWidth: 36,
+        itemStyle: { borderRadius: horizontal ? [0,6,6,0] : [6,6,0,0] },
+        label: {
+          show: showLabels,
+          position: horizontal ? 'right' : 'top',
+          formatter: function(p){ return fmt(p.value); },
+          color: PALETTE.ink2,
+          fontSize: 11
+        },
+        data: rows.map(function(r){ return r.value; })
+      }],
+      tooltip: { trigger: 'axis', valueFormatter: fmt }
+    };
+    if (horizontal) {
+      option.yAxis = { type: 'category', data: rows.map(function(r){ return r.label; }), axisLabel: { width: 100, overflow: 'truncate' } };
+      option.xAxis = { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } };
+    } else {
+      option.xAxis = { type: 'category', data: rows.map(function(r){ return r.label; }), axisLabel: { rotate: rows.length > 5 ? 30 : 0 } };
+      option.yAxis = { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } };
+    }
+    return option;
+  }
+
+  if (spec.type === 'donut') {
+    var pieRows = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask);
+    pieRows = Spec.applyTopN(pieRows, 8, spec.aggregation);
+    var showPieLabels = !!spec.showLabels;
+    return {
+      tooltip: { trigger: 'item', valueFormatter: fmt },
+      legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+      series: [{
+        type: 'pie',
+        radius: ['45%', '72%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderColor: PALETTE.bg2, borderWidth: 2 },
+        label: showPieLabels ? { show: true, formatter: '{d}%', color: PALETTE.ink2, fontSize: 11 } : { show: false },
+        labelLine: { show: showPieLabels },
+        data: pieRows.map(function(r){ return { name: r.label, value: r.value }; })
+      }]
+    };
+  }
+
+  if (spec.type === 'scatter') {
+    var xCol = findColumn(columns, spec.xField);
+    var yCol = findColumn(columns, spec.yField);
+    var n = xCol.values.length;
+    var points = [];
+    for (var i=0;i<n;i++){
+      if (mask && !mask[i]) continue;
+      var x = xCol.values[i], y = yCol.values[i];
+      if (!isNaN(x) && !isNaN(y)) points.push([x,y]);
+    }
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
+      xAxis: { type: 'value', name: titleCase(spec.xField), nameLocation: 'middle', nameGap: 32 },
+      yAxis: { type: 'value', name: titleCase(spec.yField), nameLocation: 'middle', nameGap: 44 },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+        { type: 'inside', yAxisIndex: 0, filterMode: 'none' }
+      ],
+      series: [{ type: 'scatter', symbolSize: spec.pointSize || 8, data: points, large: points.length > 2000, progressive: 2000 }],
+      tooltip: { trigger: 'item' }
+    };
+  }
+
+  if (spec.type === 'histogram') {
+    var col = findColumn(columns, spec.xField);
+    var srcVals = col.values;
+    var vLen = srcVals.length;
+    var min = Infinity, max = -Infinity, validCount = 0;
+    for (var vi = 0; vi < vLen; vi++) {
+      var v0 = srcVals[vi];
+      if (isNaN(v0)) continue;
+      if (v0 < min) min = v0;
+      if (v0 > max) max = v0;
+      validCount++;
+    }
+    if (!validCount) return { series: [] };
+    var buckets = (max === min) ? 1 : (spec.buckets || 16);
+    var width = (max - min) / buckets || 1;
+    var counts = new Array(buckets).fill(0);
+    for (var vj = 0; vj < vLen; vj++) {
+      if (mask && !mask[vj]) continue;
+      var v1 = srcVals[vj];
+      if (isNaN(v1)) continue;
+      var b = Math.floor((v1 - min) / width);
+      if (b >= buckets) b = buckets - 1;
+      if (b < 0) b = 0;
+      counts[b]++;
+    }
+    var labels = counts.map(function(_, i){ return Spec.formatCompact(min + i*width); });
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
+      xAxis: { type: 'category', data: labels, axisLabel: { rotate: 30 } },
+      yAxis: { type: 'value', name: Spec.axisLabel(spec) },
+      series: [{ type: 'bar', barMaxWidth: 28, itemStyle: { borderRadius: [4,4,0,0] }, data: counts }],
+      tooltip: { trigger: 'axis' }
+    };
+  }
+
+  return null;
+};
+
+function optionHasData(option){
+  if (!option || !option.series || !option.series.length) return false;
+  return option.series.some(function(s){ return s.data && s.data.length > 0; });
+}
+
+var CHART_TYPES = [
+  { value: 'area', label: 'Area' },
+  { value: 'line', label: 'Line' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'donut', label: 'Donut' },
+  { value: 'scatter', label: 'Scatter' },
+  { value: 'histogram', label: 'Histogram' }
+];
+
+function optionsHtml(cols, selected){
+  return cols.map(function(c){
+    return '<option value="' + escapeHtml(c.name) + '"' + (c.name === selected ? ' selected' : '') + '>' + escapeHtml(c.name) + '</option>';
+  }).join('');
+}
+function fieldRow(label, role, cols, selected){
+  return '<div class="field-row"><label>' + escapeHtml(label) + '</label><select data-role="' + role + '">' + optionsHtml(cols, selected) + '</select></div>';
+}
+function fieldRowWithCount(label, role, cols, selected){
+  var opts = '<option value=""' + (selected ? '' : ' selected') + '>Row count</option>' + optionsHtml(cols, selected);
+  return '<div class="field-row"><label>' + escapeHtml(label) + '</label><select data-role="' + role + '">' + opts + '</select></div>';
+}
+function aggRow(selected){
+  var aggs = [['sum','Sum'],['avg','Average'],['count','Count']];
+  var opts = aggs.map(function(a){ return '<option value="' + a[0] + '"' + (a[0] === selected ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('');
+  return '<div class="field-row"><label>Aggregation</label><select data-role="aggregation">' + opts + '</select></div>';
+}
+function toggleRow(label, role, checked){
+  return '<div class="toggle-row"><label>' + escapeHtml(label) + '</label><input type="checkbox" data-role="' + role + '"' + (checked ? ' checked' : '') + '></div>';
+}
+function rangeRow(label, role, value, min, max){
+  return '<div class="field-row"><label>' + escapeHtml(label) + ' (' + value + ')</label><input type="range" data-role="' + role + '" min="' + min + '" max="' + max + '" value="' + value + '"></div>';
+}
+
+var SAMPLE_CSV = "Date,Region,Product,Revenue,Units\n2023-01-01,North America,Services,24218,604\n2023-01-01,Europe,Hardware,16607,336\n2023-01-01,APAC,Services,13325,343\n2023-01-01,LATAM,Software,7531,192\n2023-02-01,North America,Software,23215,591\n2023-02-01,Europe,Hardware,16844,367\n2023-02-01,APAC,Hardware,14217,308\n2023-02-01,LATAM,Hardware,8207,188\n2023-03-01,North America,Software,23834,477\n2023-03-01,Europe,Services,18754,412\n2023-03-01,APAC,Hardware,13749,278\n2023-03-01,LATAM,Hardware,7678,167\n2023-04-01,North America,Hardware,25838,566\n2023-04-01,Europe,Software,19531,419\n2023-04-01,APAC,Software,14984,341\n2023-04-01,LATAM,Software,8378,165\n2023-05-01,North America,Services,25744,524\n2023-05-01,Europe,Software,20596,526\n2023-05-01,APAC,Services,14702,293\n2023-05-01,LATAM,Hardware,8446,182\n2023-06-01,North America,Software,25050,571\n2023-06-01,Europe,Hardware,18352,409\n2023-06-01,APAC,Services,16161,413\n2023-06-01,LATAM,Software,8756,174\n2023-07-01,North America,Software,26548,619\n2023-07-01,Europe,Hardware,20264,457\n2023-07-01,APAC,Services,16290,365\n2023-07-01,LATAM,Software,7967,165\n2023-08-01,North America,Software,28545,550\n2023-08-01,Europe,Services,19298,445\n2023-08-01,APAC,Software,14662,287\n2023-08-01,LATAM,Hardware,8237,208\n2023-09-01,North America,Services,26453,629\n2023-09-01,Europe,Software,19358,445\n2023-09-01,APAC,Services,14008,316\n2023-09-01,LATAM,Software,8523,214\n2023-10-01,North America,Software,30399,726\n2023-10-01,Europe,Software,22613,475\n2023-10-01,APAC,Hardware,16871,421\n2023-10-01,LATAM,Hardware,8387,178\n2023-11-01,North America,Software,28553,617\n2023-11-01,Europe,Services,19920,498\n2023-11-01,APAC,Hardware,15213,331\n2023-11-01,LATAM,Services,9460,209\n2023-12-01,North America,Software,29840,617\n2023-12-01,Europe,Services,22732,465\n2023-12-01,APAC,Software,16728,385\n2023-12-01,LATAM,Software,9014,201\n2024-01-01,North America,Hardware,26164,672\n2024-01-01,Europe,Services,20607,521\n2024-01-01,APAC,Hardware,14241,375\n2024-01-01,LATAM,Services,9191,179\n2024-02-01,North America,Services,26223,522\n2024-02-01,Europe,Software,20549,438\n2024-02-01,APAC,Hardware,16126,361\n2024-02-01,LATAM,Software,9862,190\n2024-03-01,North America,Hardware,29737,702\n2024-03-01,Europe,Software,19985,467\n2024-03-01,APAC,Services,16214,340\n2024-03-01,LATAM,Services,8593,167\n2024-04-01,North America,Hardware,29324,615\n2024-04-01,Europe,Services,23065,547\n2024-04-01,APAC,Software,17645,370\n2024-04-01,LATAM,Software,9631,190\n2024-05-01,North America,Services,32118,707\n2024-05-01,Europe,Hardware,21399,520\n2024-05-01,APAC,Services,17632,357\n2024-05-01,LATAM,Software,10280,252\n2024-06-01,North America,Hardware,29876,778\n2024-06-01,Europe,Hardware,23673,531\n2024-06-01,APAC,Software,17427,339\n2024-06-01,LATAM,Software,10393,216\n2024-07-01,North America,Hardware,33896,786\n2024-07-01,Europe,Software,20797,466\n2024-07-01,APAC,Services,15944,341\n2024-07-01,LATAM,Services,10558,236\n2024-08-01,North America,Services,30393,647\n2024-08-01,Europe,Services,21082,485\n2024-08-01,APAC,Hardware,17968,402\n2024-08-01,LATAM,Hardware,9850,210\n2024-09-01,North America,Software,33581,651\n2024-09-01,Europe,Hardware,22867,472\n2024-09-01,APAC,Hardware,18054,447\n2024-09-01,LATAM,Software,9126,197\n2024-10-01,North America,Services,33940,848\n2024-10-01,Europe,Software,25492,540\n2024-10-01,APAC,Hardware,16243,356\n2024-10-01,LATAM,Services,9187,178\n2024-11-01,North America,Hardware,29718,613\n2024-11-01,Europe,Hardware,23168,461\n2024-11-01,APAC,Services,15947,389\n2024-11-01,LATAM,Software,9739,211\n2024-12-01,North America,Hardware,32875,662\n2024-12-01,Europe,Software,25643,597\n2024-12-01,APAC,Services,18352,371\n2024-12-01,LATAM,Services,10204,201";
+
+var UI = {
+  els: {},
+  panels: [{ id: 'panel-0', spec: null, chart: null, history: [], historyIndex: -1, el: null }],
+  activeIndex: 0,
+  _nextPanelId: 1
+};
+Object.defineProperty(UI, 'currentSpec', {
+  get: function(){ return UI.panels[UI.activeIndex].spec; },
+  set: function(v){ UI.panels[UI.activeIndex].spec = v; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(UI, 'chart', {
+  get: function(){ return UI.panels[UI.activeIndex].chart; },
+  set: function(v){ UI.panels[UI.activeIndex].chart = v; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(UI, 'history', {
+  get: function(){ return UI.panels[UI.activeIndex].history; },
+  set: function(v){ UI.panels[UI.activeIndex].history = v; },
+  enumerable: true, configurable: true
+});
+Object.defineProperty(UI, 'historyIndex', {
+  get: function(){ return UI.panels[UI.activeIndex].historyIndex; },
+  set: function(v){ UI.panels[UI.activeIndex].historyIndex = v; },
+  enumerable: true, configurable: true
+});
+
+UI.init = function(){
+  UI.els.onboarding = document.getElementById('onboarding');
+  UI.els.workspace = document.getElementById('workspace');
+  UI.els.dropzone = document.getElementById('dropzone');
+  UI.els.fileInput = document.getElementById('fileInput');
+  UI.els.fileButton = document.getElementById('fileButton');
+  UI.els.sampleBtn = document.getElementById('sampleBtn');
+  UI.els.manualBtn = document.getElementById('manualBtn');
+  UI.els.manualOverlay = document.getElementById('manualOverlay');
+  UI.els.manualClose = document.getElementById('manualClose');
+  UI.els.manualGrid = document.getElementById('manualGrid');
+  UI.els.manualAddRow = document.getElementById('manualAddRow');
+  UI.els.manualAddCol = document.getElementById('manualAddCol');
+  UI.els.manualSubmit = document.getElementById('manualSubmit');
+  UI.els.onboardingError = document.getElementById('onboardingError');
+  UI.els.panelGrid = document.getElementById('panelGrid');
+  UI.els.addChartBtn = document.getElementById('addChartBtn');
+  UI.els.filterPills = document.getElementById('filterPills');
+  UI.els.addChartBtn.addEventListener('click', UI.addChart);
+  UI.els.inspector = document.getElementById('inspector');
+  UI.els.inspectorClose = document.getElementById('inspectorClose');
+  UI.els.inspectorData = document.getElementById('inspectorData');
+  UI.els.inspectorStyle = document.getElementById('inspectorStyle');
+  UI.els.toast = document.getElementById('toast');
+  UI.els.dropzoneBusy = document.getElementById('dropzoneBusy');
+  UI.els.dropzoneBusyText = document.getElementById('dropzoneBusyText');
+  UI.els.workspaceBusy = document.getElementById('workspaceBusy');
+  UI.els.workspaceBusyText = document.getElementById('workspaceBusyText');
+
+  UI.els.fileInput.addEventListener('change', function(e){
+    if (e.target.files && e.target.files[0]) UI.loadFile(e.target.files[0]);
+  });
+  UI.els.fileButton.addEventListener('click', function(){
+    UI.els.fileInput.click();
+  });
+
+  var dragDepth = 0;
+  UI.els.dropzone.addEventListener('dragenter', function(e){
+    e.preventDefault();
+    dragDepth++;
+    document.body.classList.add('is-interacting');
+    UI.els.dropzone.classList.add('is-dragover');
+  });
+  UI.els.dropzone.addEventListener('dragover', function(e){ e.preventDefault(); });
+  UI.els.dropzone.addEventListener('dragleave', function(){
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) {
+      document.body.classList.remove('is-interacting');
+      UI.els.dropzone.classList.remove('is-dragover');
+    }
+  });
+  UI.els.dropzone.addEventListener('drop', function(){
+    dragDepth = 0;
+    document.body.classList.remove('is-interacting');
+    UI.els.dropzone.classList.remove('is-dragover');
+  });
+  window.addEventListener('blur', function(){
+    dragDepth = 0;
+    document.body.classList.remove('is-interacting');
+    UI.els.dropzone.classList.remove('is-dragover');
+  });
+
+  document.addEventListener('dragover', function(e){ e.preventDefault(); });
+  document.addEventListener('drop', function(e){
+    e.preventDefault();
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) UI.loadFile(file);
+  });
+
+  UI.els.sampleBtn.addEventListener('click', function(){
+    UI.loadCSVText(SAMPLE_CSV, 'Sample dataset');
+  });
+
+  UI.els.manualBtn.addEventListener('click', UI.openManualEntry);
+  UI.els.manualClose.addEventListener('click', UI.closeManualEntry);
+  UI.els.manualOverlay.addEventListener('click', function(e){
+    if (e.target === UI.els.manualOverlay) UI.closeManualEntry();
+  });
+  UI.els.manualAddRow.addEventListener('click', UI.manualAddRow);
+  UI.els.manualAddCol.addEventListener('click', UI.manualAddCol);
+  UI.els.manualSubmit.addEventListener('click', UI.submitManualEntry);
+  window.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && !UI.els.manualOverlay.hidden) UI.closeManualEntry();
+  });
+
+  UI.els.inspectorClose.addEventListener('click', UI.closeInspector);
+
+  window.addEventListener('paste', function(e){
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    var text = (e.clipboardData || window.clipboardData).getData('text');
+    if (!text) return;
+    var firstLine = text.split(/\r?\n/)[0] || '';
+    if (firstLine.indexOf('\t') === -1 && firstLine.indexOf(',') === -1) return;
+    e.preventDefault();
+    UI.loadCSVText(text, 'Pasted table');
+  });
+
+  window.addEventListener('keydown', function(e){
+    var mod = e.metaKey || e.ctrlKey;
+    if (!mod || (document.activeElement && document.activeElement.isContentEditable)) return;
+    var key = e.key.toLowerCase();
+    if (key === 'z' && e.shiftKey) { e.preventDefault(); UI.redo(); }
+    else if (key === 'z') { e.preventDefault(); UI.undo(); }
+    else if (key === 'y') { e.preventDefault(); UI.redo(); }
+  });
+
+  window.addEventListener('resize', function(){
+    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+  });
+};
+
+UI.panelCardHtml = function(){
+  return '<div class="chart-card">' +
+    '<div class="chart-toolbar">' +
+      '<button type="button" class="icon-btn" data-action="edit" title="Edit chart" aria-label="Edit chart">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"></line><circle cx="9" cy="6" r="2"></circle><line x1="4" y1="12" x2="20" y2="12"></line><circle cx="15" cy="12" r="2"></circle><line x1="4" y1="18" x2="20" y2="18"></line><circle cx="9" cy="18" r="2"></circle></svg>' +
+      '</button>' +
+      '<button type="button" class="icon-btn" data-action="export" title="Export as PNG" aria-label="Export chart as PNG">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>' +
+      '</button>' +
+      '<button type="button" class="icon-btn is-danger" data-action="delete" title="Delete chart" aria-label="Delete chart">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg>' +
+      '</button>' +
+    '</div>' +
+    '<h2 class="chart-title" contenteditable="true" spellcheck="false" role="textbox" aria-label="Chart title"></h2>' +
+    '<div class="chart-canvas"></div>' +
+  '</div>';
+};
+
+UI.mountPanel = function(panel){
+  var wrapper = document.createElement('div');
+  wrapper.innerHTML = UI.panelCardHtml();
+  var card = wrapper.firstChild;
+  UI.els.panelGrid.appendChild(card);
+  panel.el = card.querySelector('.chart-canvas');
+
+  function indexOfPanel(){
+    for (var i = 0; i < UI.panels.length; i++) if (UI.panels[i] === panel) return i;
+    return -1;
+  }
+
+  ['mousedown','touchstart'].forEach(function(evt){
+    panel.el.addEventListener(evt, function(){ document.body.classList.add('is-chart-interacting'); });
+  });
+  ['mouseup','touchend'].forEach(function(evt){
+    panel.el.addEventListener(evt, function(){ document.body.classList.remove('is-chart-interacting'); });
+  });
+
+  var titleEl = card.querySelector('.chart-title');
+  titleEl.addEventListener('paste', handleContentEditablePaste);
+  titleEl.addEventListener('focus', function(){
+    var i = indexOfPanel();
+    if (i >= 0) UI.focusPanel(i);
+  });
+  titleEl.addEventListener('blur', function(){
+    var i = indexOfPanel();
+    if (i < 0 || !UI.panels[i].spec) return;
+    var text = titleEl.textContent.replace(/\s+/g,' ').trim() || 'Untitled chart';
+    titleEl.textContent = text;
+    if (text === UI.panels[i].spec.title) return;
+    var spec = Object.assign({}, UI.panels[i].spec, { title: text, titleCustom: true });
+    UI.panels[i].spec = spec;
+    UI.panels[i].history = UI.panels[i].history.slice(0, UI.panels[i].historyIndex + 1);
+    UI.panels[i].history.push(JSON.parse(JSON.stringify(spec)));
+    if (UI.panels[i].history.length > 50) UI.panels[i].history.shift();
+    UI.panels[i].historyIndex = UI.panels[i].history.length - 1;
+  });
+  titleEl.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
+  });
+
+  card.addEventListener('click', function(){
+    var i = indexOfPanel();
+    if (i >= 0) UI.focusPanel(i);
+  });
+  card.querySelector('[data-action="edit"]').addEventListener('click', function(e){
+    e.stopPropagation();
+    var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
+    UI.toggleInspector();
+  });
+  card.querySelector('[data-action="export"]').addEventListener('click', function(e){
+    e.stopPropagation();
+    var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
+    UI.exportPNG();
+  });
+  card.querySelector('[data-action="delete"]').addEventListener('click', function(e){
+    e.stopPropagation();
+    var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
+    UI.deleteChart();
+  });
+
+  return card;
+};
+
+UI.updatePanelGridLayout = function(){
+  var n = UI.panels.length;
+  UI.els.panelGrid.className = 'panel-grid has-' + Math.min(Math.max(n, 1), 4);
+};
+
+UI.focusPanel = function(index){
+  if (index < 0 || index >= UI.panels.length) return;
+  UI.activeIndex = index;
+  Array.prototype.forEach.call(UI.els.panelGrid.children, function(card, i){
+    card.classList.toggle('is-active', i === index);
+  });
+  if (UI.els.inspector && !UI.els.inspector.hidden) UI.renderInspector();
+};
+
+UI.addChart = function(){
+  var dataset = Store.get().dataset;
+  if (!dataset) return;
+  var candidates = Spec.candidates(dataset.columns);
+  if (!candidates.length) { UI.toast('No more chart types available for this data.'); return; }
+  var candidate = candidates[UI.panels.length % candidates.length];
+  var newPanel = {
+    id: 'panel-' + (UI._nextPanelId++),
+    spec: candidate.spec,
+    chart: null,
+    history: [JSON.parse(JSON.stringify(candidate.spec))],
+    historyIndex: 0,
+    el: null
+  };
+  UI.panels.push(newPanel);
+  UI.mountPanel(newPanel);
+  UI.updatePanelGridLayout();
+  UI.focusPanel(UI.panels.length - 1);
+  UI.renderChart(UI.currentSpec, dataset.columns);
+  UI.syncTitleElement();
+  UI.connectPanelCharts();
+  requestAnimationFrame(function(){
+    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+  });
+};
+
+UI.connectPanelCharts = function(){
+  if (typeof echarts === 'undefined' || !echarts.connect) return;
+  var charts = UI.panels.map(function(p){ return p.chart; }).filter(Boolean);
+  if (charts.length) echarts.connect(charts);
+};
+
+UI.refreshAllPanels = function(){
+  var dataset = Store.get().dataset;
+  if (!dataset) return;
+  var panelIds = UI.panels.map(function(p){ return p.id; });
+  Filters.recompute(dataset.columns, dataset.rowCount, panelIds);
+  UI.panels.forEach(function(p){
+    if (!p.chart || !p.spec) return;
+    var mask = Filters.maskFor(p.id);
+    var option = Render.buildOption(p.spec, dataset.columns, mask);
+    p.chart.setOption(option, true);
+  });
+  UI.renderFilterPills();
+};
+
+UI.renderFilterPills = function(){
+  var container = UI.els.filterPills;
+  if (!container) return;
+  if (!Filters.list.length) { container.hidden = true; container.innerHTML = ''; return; }
+  container.hidden = false;
+  container.innerHTML = Filters.list.map(function(f, i){
+    var label = f.kind === 'value'
+      ? (titleCase(f.field) + ': ' + f.payload)
+      : (titleCase(f.field) + ': ' + Spec.formatCompact(f.payload[0]) + '\u2013' + Spec.formatCompact(f.payload[1]));
+    return '<button type="button" class="filter-pill" data-filter-index="' + i + '">' + escapeHtml(label) + ' <span class="pill-x" aria-hidden="true">\u00d7</span></button>';
+  }).join('') + '<button type="button" class="clear-filters-btn" id="clearAllFiltersBtn">Clear all</button>';
+
+  Array.prototype.slice.call(container.querySelectorAll('.filter-pill')).forEach(function(pill){
+    pill.addEventListener('click', function(){
+      Filters.removeAt(parseInt(pill.dataset.filterIndex, 10));
+      UI.refreshAllPanels();
+    });
+  });
+  var clearBtn = document.getElementById('clearAllFiltersBtn');
+  if (clearBtn) clearBtn.addEventListener('click', function(){ Filters.clearAll(); UI.refreshAllPanels(); });
+};
+
+UI.wireChartInteractions = function(panel){
+  panel.chart.on('click', function(params){
+    var spec = panel.spec;
+    if (!spec) return;
+    if ((spec.type === 'bar' || spec.type === 'donut') && params.name !== undefined) {
+      Filters.add(panel.id, spec.xField, 'value', params.name);
+      UI.refreshAllPanels();
+    }
+  });
+  panel.chart.on('datazoom', function(evt){
+    var spec = panel.spec;
+    if (!spec || spec.type !== 'scatter') return;
+    var opt = panel.chart.getOption();
+    var dz = opt.dataZoom || [];
+    var xdz = dz.filter(function(d){ return d.xAxisIndex === 0 || (d.xAxisIndex && d.xAxisIndex.indexOf(0) >= 0); })[0];
+    var ydz = dz.filter(function(d){ return d.yAxisIndex === 0 || (d.yAxisIndex && d.yAxisIndex.indexOf(0) >= 0); })[0];
+    var isFullX = !xdz || (xdz.start === 0 && xdz.end === 100);
+    var isFullY = !ydz || (ydz.start === 0 && ydz.end === 100);
+    if (isFullX && isFullY) {
+      var existingIdx = Filters.list.findIndex(function(f){ return f.panelId === panel.id; });
+      if (existingIdx >= 0) Filters.removeAt(existingIdx);
+      UI.refreshAllPanels();
+      return;
+    }
+    if (!isFullX && xdz.startValue !== undefined) {
+      Filters.add(panel.id, spec.xField, 'range', [xdz.startValue, xdz.endValue]);
+    } else if (!isFullY && ydz.startValue !== undefined) {
+      Filters.add(panel.id, spec.yField, 'range', [ydz.startValue, ydz.endValue]);
+    }
+    UI.refreshAllPanels();
+  });
+};
+
+UI.showError = function(message){
+  UI.els.onboardingError.hidden = false;
+  UI.els.onboardingError.textContent = message;
+};
+UI.clearError = function(){
+  UI.els.onboardingError.hidden = true;
+  UI.els.onboardingError.textContent = '';
+};
+UI.toast = function(message){
+  UI.els.toast.hidden = false;
+  UI.els.toast.textContent = message;
+  requestAnimationFrame(function(){ UI.els.toast.classList.add('is-visible'); });
+  clearTimeout(UI._toastTimer);
+  UI._toastTimer = setTimeout(function(){ UI.els.toast.classList.remove('is-visible'); }, 3200);
+};
+
+UI.setBusy = function(isBusy, message){
+  var inOnboarding = !UI.els.onboarding.hidden;
+  if (inOnboarding) {
+    UI.els.dropzoneBusy.hidden = !isBusy;
+    UI.els.dropzoneBusyText.textContent = isBusy ? message : '';
+  } else if (isBusy) {
+    UI.els.workspaceBusy.hidden = false;
+    UI.els.workspaceBusyText.textContent = message;
+    requestAnimationFrame(function(){ UI.els.workspaceBusy.classList.add('is-visible'); });
+  } else {
+    UI.els.workspaceBusy.classList.remove('is-visible');
+    UI.els.workspaceBusy.hidden = true;
+    UI.els.workspaceBusyText.textContent = '';
+  }
+};
+
+UI.manualDefaultData = function(){
+  return [
+    ['Category', 'Value'],
+    ['A', '10'],
+    ['B', '20'],
+    ['C', '15']
+  ];
+};
+
+UI.openManualEntry = function(){
+  if (!UI.manualData) UI.manualData = UI.manualDefaultData();
+  UI.renderManualGrid();
+  UI.els.manualOverlay.hidden = false;
+  requestAnimationFrame(function(){
+    var firstCell = UI.els.manualGrid.querySelector('td');
+    if (firstCell) firstCell.focus();
+  });
+};
+UI.closeManualEntry = function(){
+  UI.els.manualOverlay.hidden = true;
+};
+
+UI.renderManualGrid = function(){
+  var grid = UI.els.manualGrid;
+  grid.innerHTML = '';
+  UI.manualData.forEach(function(row, r){
+    var tr = document.createElement('tr');
+    row.forEach(function(cellVal, c){
+      var td = document.createElement('td');
+      td.contentEditable = 'true';
+      td.spellcheck = false;
+      td.textContent = cellVal;
+      td.addEventListener('input', function(){
+        UI.manualData[r][c] = td.textContent;
+      });
+      td.addEventListener('paste', handleContentEditablePaste);
+      td.addEventListener('keydown', function(e){
+        if (e.key !== 'Tab' && e.key !== 'Enter') return;
+        e.preventDefault();
+        var nextR = r, nextC = c + 1;
+        if (nextC >= UI.manualData[r].length) { nextR = r + 1; nextC = 0; }
+        if (nextR >= UI.manualData.length) UI.manualAddRow();
+        var cells = UI.els.manualGrid.querySelectorAll('td');
+        var target = cells[nextR * UI.manualData[0].length + nextC];
+        if (target) { target.focus(); document.getSelection().selectAllChildren(target); }
+      });
+      tr.appendChild(td);
+    });
+    grid.appendChild(tr);
+  });
+};
+
+UI.manualAddRow = function(){
+  var cols = UI.manualData[0] ? UI.manualData[0].length : 2;
+  var newRow = [];
+  for (var i=0;i<cols;i++) newRow.push('');
+  UI.manualData.push(newRow);
+  UI.renderManualGrid();
+};
+UI.manualAddCol = function(){
+  UI.manualData.forEach(function(row, i){ row.push(i === 0 ? ('Column ' + (row.length + 1)) : ''); });
+  UI.renderManualGrid();
+};
+
+UI.submitManualEntry = function(){
+  var data = UI.manualData;
+  if (!data || !data.length) return;
+  var seen = {};
+  var fields = data[0].map(function(h, i){
+    var name = (h && String(h).trim()) || ('Column ' + (i+1));
+    if (seen[name]) { seen[name]++; name = name + ' (' + seen[name] + ')'; } else { seen[name] = 1; }
+    return name;
+  });
+  var rows = [];
+  for (var r=1;r<data.length;r++){
+    var rawRow = data[r];
+    var isEmpty = rawRow.every(function(v){ return !v || !String(v).trim(); });
+    if (isEmpty) continue;
+    var obj = {};
+    fields.forEach(function(f, c){ obj[f] = rawRow[c] !== undefined ? rawRow[c] : ''; });
+    rows.push(obj);
+  }
+  if (!rows.length) { UI.toast('Add at least one row of data first.'); return; }
+  UI.closeManualEntry();
+  UI.applyRows(rows, fields, 'Manual table');
+};
+
+UI.loadFile = function(file){
+  UI.clearError();
+  UI.setBusy(true, 'Reading ' + file.name + '\u2026');
+  Data.fromFile(file, function(res){
+    UI.setBusy(false);
+    if (!res.ok) { UI.showError(res.message); return; }
+    UI.applyRows(res.rows, res.fields, file.name, res.note);
+  });
+};
+UI.loadCSVText = function(text, label){
+  UI.clearError();
+  UI.setBusy(true, 'Reading pasted data\u2026');
+  Data.fromCSVText(text, function(res){
+    UI.setBusy(false);
+    if (!res.ok) { UI.showError(res.message); return; }
+    UI.applyRows(res.rows, res.fields, label);
+  });
+};
+
+UI.applyRows = function(rows, fields, label, note){
+  if (!rows || !rows.length) { UI.showError('That file doesn\u2019t have any rows to chart.'); return; }
+  var store = Data.buildColumnarStore(rows, fields);
+  Store.set({ dataset: store, sourceName: label });
+  var spec = Spec.autoRecommend(store.columns);
+  if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in ' + label + '.'); return; }
+
+  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.els.panelGrid.innerHTML = '';
+  UI.panels = [{ id: 'panel-0', spec: null, chart: null, history: [], historyIndex: -1, el: null }];
+  UI._nextPanelId = 1;
+  UI.activeIndex = 0;
+  Filters.clearAll();
+  UI.renderFilterPills();
+  UI.mountPanel(UI.panels[0]);
+  UI.updatePanelGridLayout();
+
+  UI.els.onboarding.hidden = true;
+  UI.els.workspace.hidden = false;
+  UI.els.addChartBtn.hidden = false;
+  requestAnimationFrame(function(){
+    var ok = UI.commitSpec(spec);
+    if (ok) {
+      UI.clearError();
+      if (note) UI.toast(note);
+      UI.connectPanelCharts();
+    } else {
+      UI.els.onboarding.hidden = false;
+      UI.els.workspace.hidden = true;
+      UI.els.addChartBtn.hidden = true;
+    }
+  });
+};
+
+UI.renderChart = function(spec, columns){
+  if (typeof echarts === 'undefined') {
+    UI.showError('Draw couldn\u2019t load its charting engine. Check your connection and reload the page.');
+    return false;
+  }
+  try {
+    var activePanel = UI.panels[UI.activeIndex];
+    var mask = Filters.maskFor(activePanel.id);
+    var option = Render.buildOption(spec, columns, mask);
+    if (!optionHasData(option)) {
+      var msg = 'There isn\u2019t enough usable data for that chart.';
+      if (UI.chart) UI.toast(msg); else UI.showError(msg);
+      return false;
+    }
+    var isNewChart = !UI.chart;
+    if (!UI.chart) UI.chart = echarts.init(activePanel.el, 'kiln', { renderer: 'canvas' });
+    UI.chart.setOption(option, true);
+    UI.chart.resize();
+    if (isNewChart) UI.wireChartInteractions(activePanel);
+    return true;
+  } catch (err) {
+    var errMsg = 'Something went wrong building that chart. Try a different file or field.';
+    if (UI.chart) UI.toast(errMsg); else UI.showError(errMsg);
+    return false;
+  }
+};
+
+UI.commitSpec = function(newSpec){
+  var columns = Store.get().dataset ? Store.get().dataset.columns : [];
+  var ok = UI.renderChart(newSpec, columns);
+  if (!ok) { UI.renderInspector(); return false; }
+  UI.currentSpec = newSpec;
+  UI.history = UI.history.slice(0, UI.historyIndex + 1);
+  UI.history.push(JSON.parse(JSON.stringify(newSpec)));
+  if (UI.history.length > 50) UI.history.shift();
+  UI.historyIndex = UI.history.length - 1;
+  UI.syncTitleElement();
+  UI.renderInspector();
+  return true;
+};
+
+UI.syncTitleElement = function(){
+  var panel = UI.panels[UI.activeIndex];
+  var card = panel && panel.el && panel.el.closest('.chart-card');
+  var titleEl = card && card.querySelector('.chart-title');
+  if (titleEl && UI.currentSpec) titleEl.textContent = UI.currentSpec.title;
+};
+
+UI.undo = function(){
+  if (UI.historyIndex <= 0 || !UI.currentSpec) return;
+  var columns = Store.get().dataset.columns;
+  var snap = JSON.parse(JSON.stringify(UI.history[UI.historyIndex - 1]));
+  var ok = UI.renderChart(snap, columns);
+  if (ok) {
+    UI.historyIndex--;
+    UI.currentSpec = snap;
+    UI.syncTitleElement();
+    UI.renderInspector();
+  }
+};
+UI.redo = function(){
+  if (UI.historyIndex >= UI.history.length - 1 || !UI.currentSpec) return;
+  var columns = Store.get().dataset.columns;
+  var snap = JSON.parse(JSON.stringify(UI.history[UI.historyIndex + 1]));
+  var ok = UI.renderChart(snap, columns);
+  if (ok) {
+    UI.historyIndex++;
+    UI.currentSpec = snap;
+    UI.syncTitleElement();
+    UI.renderInspector();
+  }
+};
+
+UI.openInspector = function(){
+  UI.els.inspector.hidden = false;
+  UI.renderInspector();
+  requestAnimationFrame(function(){ UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); }); });
+};
+UI.closeInspector = function(){
+  UI.els.inspector.hidden = true;
+  requestAnimationFrame(function(){ UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); }); });
+};
+UI.toggleInspector = function(){
+  if (UI.els.inspector.hidden) UI.openInspector(); else UI.closeInspector();
+};
+
+UI.deleteChart = function(){
+  var index = UI.activeIndex;
+  var panel = UI.panels[index];
+  if (!panel) return;
+  if (panel.chart) panel.chart.dispose();
+  var card = panel.el && panel.el.closest('.chart-card');
+  if (card && card.parentNode) card.parentNode.removeChild(card);
+  UI.panels.splice(index, 1);
+  Filters.list = Filters.list.filter(function(f){ return f.panelId !== panel.id; });
+
+  if (UI.panels.length === 0) {
+    Store.set({ dataset: null, sourceName: null });
+    UI.closeInspector();
+    UI.clearError();
+    UI.manualData = null;
+    Filters.clearAll();
+    UI.renderFilterPills();
+    UI.els.workspace.hidden = true;
+    UI.els.onboarding.hidden = false;
+    UI.els.addChartBtn.hidden = true;
+    UI.els.fileInput.value = '';
+    UI.els.fileButton.focus();
+    return;
+  }
+
+  UI.activeIndex = Math.min(index, UI.panels.length - 1);
+  Array.prototype.forEach.call(UI.els.panelGrid.children, function(c, i){
+    c.classList.toggle('is-active', i === UI.activeIndex);
+  });
+  UI.updatePanelGridLayout();
+  UI.connectPanelCharts();
+  if (!UI.els.inspector.hidden) UI.renderInspector();
+  UI.refreshAllPanels();
+  requestAnimationFrame(function(){
+    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+  });
+};
+
+UI.exportPNG = function(){
+  if (!UI.chart) return;
+  var url = UI.chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'draw-chart.png';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  UI.toast('Chart downloaded');
+};
+
+UI.renderInspector = function(){
+  if (!UI.currentSpec || !Store.get().dataset) return;
+  var columns = Store.get().dataset.columns;
+  var spec = UI.currentSpec;
+  var usable = Spec.usableColumns(columns);
+  var dateCols = usable.filter(function(c){ return c.type === 'date'; });
+  var numCols = usable.filter(function(c){ return c.type === 'number'; });
+  var catCols = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+
+  var recommendedType = (function(){
+    var top = Spec.candidates(columns)[0];
+    return top ? top.spec.type : null;
+  })();
+
+  var typeAvailable = {};
+  CHART_TYPES.forEach(function(t){
+    if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0 && numCols.length > 0;
+    else if (t.value === 'bar' || t.value === 'donut') typeAvailable[t.value] = catCols.length > 0;
+    else if (t.value === 'scatter') typeAvailable[t.value] = numCols.length >= 2;
+    else if (t.value === 'histogram') typeAvailable[t.value] = numCols.length >= 1;
+    else typeAvailable[t.value] = true;
+  });
+
+  var typeHtml = '<h3>Data</h3><div class="type-gallery" id="typeGallery">' +
+    CHART_TYPES.map(function(t){
+      var isSelected = t.value === spec.type;
+      var classes = 'type-tile' + (isSelected ? ' is-selected' : '') + (typeAvailable[t.value] ? '' : ' is-unavailable');
+      var badge = (t.value === recommendedType) ? '<svg class="tile-badge" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>' : '';
+      return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(t.label) + '" aria-pressed="' + isSelected + '">' +
+        badge +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart-' + t.value + '"/></svg>' +
+        '<span>' + escapeHtml(t.label) + '</span>' +
+        '</button>';
+    }).join('') +
+    '</div>';
+
+  var fieldsHtml = '';
+  if (spec.type === 'line' || spec.type === 'area') {
+    fieldsHtml += fieldRow('Date field', 'xField', dateCols, spec.xField);
+    fieldsHtml += fieldRow('Value field', 'yField', numCols, spec.yField);
+    fieldsHtml += aggRow(spec.aggregation);
+  } else if (spec.type === 'bar' || spec.type === 'donut') {
+    fieldsHtml += fieldRow('Category field', 'xField', catCols, spec.xField);
+    fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
+    fieldsHtml += aggRow(spec.aggregation);
+  } else if (spec.type === 'scatter') {
+    fieldsHtml += fieldRow('X field', 'xField', numCols, spec.xField);
+    fieldsHtml += fieldRow('Y field', 'yField', numCols, spec.yField);
+  } else if (spec.type === 'histogram') {
+    fieldsHtml += fieldRow('Field', 'xField', numCols, spec.xField);
+  }
+
+  var styleHtml = '';
+  if (spec.type === 'line' || spec.type === 'area') {
+    styleHtml += toggleRow('Show points', 'showPoints', spec.showPoints !== false);
+  } else if (spec.type === 'bar') {
+    styleHtml += toggleRow('Show value labels', 'showLabels', !!spec.showLabels);
+  } else if (spec.type === 'donut') {
+    styleHtml += toggleRow('Show percentages', 'showLabels', !!spec.showLabels);
+  } else if (spec.type === 'scatter') {
+    styleHtml += rangeRow('Point size', 'pointSize', spec.pointSize || 8, 4, 20);
+  } else if (spec.type === 'histogram') {
+    styleHtml += rangeRow('Buckets', 'buckets', spec.buckets || 16, 6, 32);
+  }
+
+  UI.els.inspectorData.innerHTML = typeHtml + fieldsHtml;
+  UI.els.inspectorStyle.innerHTML = '<h3>Style</h3>' + (styleHtml || '<p class="inspector-empty">Nothing to style for this chart yet.</p>');
+
+  var typeGallery = document.getElementById('typeGallery');
+  if (typeGallery) {
+    Array.prototype.slice.call(typeGallery.querySelectorAll('.type-tile')).forEach(function(tile){
+      tile.addEventListener('click', function(){ UI.changeChartType(tile.dataset.type); });
+    });
+  }
+
+  var controls = UI.els.inspectorData.querySelectorAll('[data-role]').length
+    ? Array.prototype.slice.call(UI.els.inspectorData.querySelectorAll('[data-role]')).concat(Array.prototype.slice.call(UI.els.inspectorStyle.querySelectorAll('[data-role]')))
+    : Array.prototype.slice.call(UI.els.inspectorStyle.querySelectorAll('[data-role]'));
+  controls.forEach(function(el){
+    var evt = (el.type === 'range') ? 'input' : 'change';
+    el.addEventListener(evt, function(){
+      var value = (el.type === 'checkbox') ? el.checked : el.value;
+      UI.updateSpecField(el.getAttribute('data-role'), value);
+    });
+  });
+};
+
+UI.updateSpecField = function(role, value){
+  var spec = Object.assign({}, UI.currentSpec);
+  if (role === 'yField') {
+    spec.yField = value === '' ? null : value;
+    if (!spec.yField) spec.aggregation = 'count';
+  } else if (role === 'pointSize' || role === 'buckets') {
+    spec[role] = parseInt(value, 10);
+  } else {
+    spec[role] = value;
+  }
+  if ((role === 'xField' || role === 'yField') && spec.yField) {
+    spec.currency = Spec.isCurrency(spec.yField);
+  }
+  if (!spec.titleCustom) spec.title = Spec.regenerateTitle(spec);
+  UI.commitSpec(spec);
+};
+
+UI.changeChartType = function(newType){
+  var columns = Store.get().dataset.columns;
+  var usable = Spec.usableColumns(columns);
+  var old = UI.currentSpec;
+  var dateCols = usable.filter(function(c){ return c.type === 'date'; });
+  var numCols = usable.filter(function(c){ return c.type === 'number'; });
+  var catCols = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+
+  function pick(cols, preferredName){
+    var found = preferredName ? cols.filter(function(c){ return c.name === preferredName; })[0] : null;
+    return found || cols[0] || null;
+  }
+
+  var newSpec = null;
+  if (newType === 'line' || newType === 'area') {
+    var d = pick(dateCols, old.xField), v = pick(numCols, old.yField);
+    if (!d || !v) { UI.toast('Need a date column and a number column for that.'); return; }
+    newSpec = Spec.buildTimeSeries(d, v);
+    newSpec.type = newType;
+  } else if (newType === 'bar' || newType === 'donut') {
+    var c = pick(catCols, old.xField), v2 = old.yField ? pick(numCols, old.yField) : null;
+    if (!c) { UI.toast('Need a category column for that.'); return; }
+    newSpec = v2 ? Spec.buildCategoryNumeric(c, v2) : Spec.buildCategoryCount(c);
+    newSpec.type = newType;
+  } else if (newType === 'scatter') {
+    var x = pick(numCols, old.xField);
+    var yCandidates = numCols.filter(function(c){ return !x || c.name !== x.name; });
+    var y = pick(yCandidates, old.yField) || pick(numCols, old.yField);
+    if (!x || !y) { UI.toast('Need two number columns for that.'); return; }
+    newSpec = Spec.buildScatter(x, y);
+  } else if (newType === 'histogram') {
+    var h = pick(numCols, old.xField) || pick(numCols, old.yField);
+    if (!h) { UI.toast('Need a number column for that.'); return; }
+    newSpec = Spec.buildHistogram(h);
+  }
+  if (!newSpec) return;
+  if (old && old.titleCustom) { newSpec.title = old.title; newSpec.titleCustom = true; }
+  UI.commitSpec(newSpec);
+};
+
+document.addEventListener('DOMContentLoaded', function(){
+  UI.init();
+  if (typeof echarts === 'undefined' || typeof Papa === 'undefined') {
+    UI.showError('Draw couldn\u2019t load its charting libraries. Check your connection and reload the page.');
+    return;
+  }
+  registerKilnTheme();
+});
+</script>
+</body>
+</html>
