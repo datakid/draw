@@ -1509,6 +1509,82 @@ Filters.clearAll = function(){
   Filters._masks = {};
 };
 
+var Persistence = {};
+Persistence.DASHBOARD_KEY = 'draw-dashboard';
+Persistence.DB_NAME = 'draw-store';
+Persistence.DB_VERSION = 1;
+Persistence.STORE_NAME = 'dataset';
+
+Persistence.openDB = function(){
+  return new Promise(function(resolve, reject){
+    if (!window.indexedDB) { reject(new Error('IndexedDB not available')); return; }
+    var req = indexedDB.open(Persistence.DB_NAME, Persistence.DB_VERSION);
+    req.onupgradeneeded = function(){
+      if (!req.result.objectStoreNames.contains(Persistence.STORE_NAME)) {
+        req.result.createObjectStore(Persistence.STORE_NAME);
+      }
+    };
+    req.onsuccess = function(){ resolve(req.result); };
+    req.onerror = function(){ reject(req.error); };
+  });
+};
+
+Persistence.saveDataset = function(rows, fields, sourceName){
+  return Persistence.openDB().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(Persistence.STORE_NAME, 'readwrite');
+      tx.objectStore(Persistence.STORE_NAME).put({ rows: rows, fields: fields, sourceName: sourceName }, 'current');
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error); };
+    });
+  }).catch(function(){});
+};
+
+Persistence.loadDataset = function(){
+  return Persistence.openDB().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(Persistence.STORE_NAME, 'readonly');
+      var req = tx.objectStore(Persistence.STORE_NAME).get('current');
+      req.onsuccess = function(){ resolve(req.result || null); };
+      req.onerror = function(){ reject(req.error); };
+    });
+  }).catch(function(){ return null; });
+};
+
+Persistence.clearDataset = function(){
+  return Persistence.openDB().then(function(db){
+    return new Promise(function(resolve, reject){
+      var tx = db.transaction(Persistence.STORE_NAME, 'readwrite');
+      tx.objectStore(Persistence.STORE_NAME).delete('current');
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(){ reject(tx.error); };
+    });
+  }).catch(function(){});
+};
+
+Persistence.saveDashboard = function(){
+  try {
+    var payload = {
+      panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }),
+      filters: Filters.list,
+      activeIndex: UI.activeIndex,
+      nextPanelId: UI._nextPanelId
+    };
+    localStorage.setItem(Persistence.DASHBOARD_KEY, JSON.stringify(payload));
+  } catch (err) {}
+};
+
+Persistence.loadDashboard = function(){
+  try {
+    var raw = localStorage.getItem(Persistence.DASHBOARD_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) { return null; }
+};
+
+Persistence.clearDashboard = function(){
+  try { localStorage.removeItem(Persistence.DASHBOARD_KEY); } catch (err) {}
+};
+
 var Render = {};
 
 Render.buildOption = function(spec, columns, mask){
@@ -1850,6 +1926,7 @@ UI.panelCardHtml = function(){
       '<button type="button" data-export="csv"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>CSV (this chart\u2019s data)</button>' +
       '<hr>' +
       '<button type="button" data-export="dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dashboard"/></svg>Whole dashboard (PNG)</button>' +
+      '<button type="button" data-export="drawjson"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Save dashboard (.draw.json)</button>' +
     '</div>' +
     '<h2 class="chart-title" contenteditable="true" spellcheck="false" role="textbox" aria-label="Chart title"></h2>' +
     '<div class="chart-canvas"></div>' +
@@ -1893,6 +1970,7 @@ UI.mountPanel = function(panel){
     UI.panels[i].history.push(JSON.parse(JSON.stringify(spec)));
     if (UI.panels[i].history.length > 50) UI.panels[i].history.shift();
     UI.panels[i].historyIndex = UI.panels[i].history.length - 1;
+    Persistence.saveDashboard();
   });
   titleEl.addEventListener('keydown', function(e){
     if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
@@ -1944,6 +2022,10 @@ UI.mountPanel = function(panel){
     UI.exportDashboardPNG();
     UI.closeAllExportMenus();
   });
+  exportMenu.querySelector('[data-export="drawjson"]').addEventListener('click', function(){
+    UI.exportDrawJSON();
+    UI.closeAllExportMenus();
+  });
   card.querySelector('[data-action="delete"]').addEventListener('click', function(e){
     e.stopPropagation();
     var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
@@ -1993,6 +2075,7 @@ UI.addChart = function(){
   UI.renderChart(UI.currentSpec, dataset.columns);
   UI.syncTitleElement();
   UI.connectPanelCharts();
+  Persistence.saveDashboard();
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
   });
@@ -2002,6 +2085,79 @@ UI.connectPanelCharts = function(){
   if (typeof echarts === 'undefined' || !echarts.connect) return;
   var charts = UI.panels.map(function(p){ return p.chart; }).filter(Boolean);
   if (charts.length) echarts.connect(charts);
+};
+
+UI.initPanelChart = function(panel, columns){
+  if (typeof echarts === 'undefined' || !panel.el || !panel.spec) return;
+  var mask = Filters.maskFor(panel.id);
+  var option = Render.buildOption(panel.spec, columns, mask);
+  panel.chart = echarts.init(panel.el, 'kiln', { renderer: 'canvas' });
+  panel.chart.setOption(option, true);
+  UI.wireChartInteractions(panel);
+};
+
+UI.restoreDashboardState = function(payload, sourceLabel){
+  if (!payload || !payload.rows || !payload.rows.length || !payload.fields) {
+    UI.showError('That file is missing data Draw needs to restore it.');
+    return false;
+  }
+  var store = Data.buildColumnarStore(payload.rows, payload.fields);
+  Store.set({ dataset: store, sourceName: payload.sourceName || sourceLabel, rawRows: payload.rows, rawFields: payload.fields });
+
+  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.els.panelGrid.innerHTML = '';
+  UI.panels = (payload.panels || []).map(function(pd){
+    return { id: pd.id, spec: pd.spec, chart: null, history: [JSON.parse(JSON.stringify(pd.spec))], historyIndex: 0, el: null };
+  });
+  if (!UI.panels.length) {
+    var spec = Spec.autoRecommend(store.columns);
+    if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in that file.'); return false; }
+    UI.panels = [{ id: 'panel-0', spec: spec, chart: null, history: [JSON.parse(JSON.stringify(spec))], historyIndex: 0, el: null }];
+  }
+  UI._nextPanelId = payload.nextPanelId || UI.panels.length;
+  Filters.list = payload.filters || [];
+
+  UI.panels.forEach(function(p){
+    UI.mountPanel(p);
+    UI.initPanelChart(p, store.columns);
+  });
+  UI.updatePanelGridLayout();
+  UI.activeIndex = Math.min(payload.activeIndex || 0, UI.panels.length - 1);
+  Array.prototype.forEach.call(UI.els.panelGrid.children, function(c, i){
+    c.classList.toggle('is-active', i === UI.activeIndex);
+  });
+
+  UI.els.onboarding.hidden = true;
+  UI.els.workspace.hidden = false;
+  UI.els.addChartBtn.hidden = false;
+  UI.clearError();
+  UI.connectPanelCharts();
+  UI.refreshAllPanels();
+  Persistence.saveDataset(payload.rows, payload.fields, payload.sourceName || sourceLabel);
+  Persistence.saveDashboard();
+
+  requestAnimationFrame(function(){
+    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+  });
+  return true;
+};
+
+UI.restoreSession = function(){
+  var dashboard = Persistence.loadDashboard();
+  if (!dashboard) return;
+  Persistence.loadDataset().then(function(saved){
+    if (!saved || !saved.rows || !saved.rows.length) return;
+    var ok = UI.restoreDashboardState({
+      rows: saved.rows,
+      fields: saved.fields,
+      sourceName: saved.sourceName,
+      panels: dashboard.panels,
+      filters: dashboard.filters,
+      activeIndex: dashboard.activeIndex,
+      nextPanelId: dashboard.nextPanelId
+    }, saved.sourceName);
+    if (ok) UI.toast('Restored your last dashboard');
+  });
 };
 
 UI.refreshAllPanels = function(){
@@ -2016,6 +2172,7 @@ UI.refreshAllPanels = function(){
     p.chart.setOption(option, true);
   });
   UI.renderFilterPills();
+  Persistence.saveDashboard();
 };
 
 UI.renderFilterPills = function(){
@@ -2193,6 +2350,10 @@ UI.submitManualEntry = function(){
 };
 
 UI.loadFile = function(file){
+  if (file.name.toLowerCase().endsWith('.draw.json')) {
+    UI.importDrawJSON(file);
+    return;
+  }
   UI.clearError();
   UI.setBusy(true, 'Reading ' + file.name + '\u2026');
   Data.fromFile(file, function(res){
@@ -2200,6 +2361,24 @@ UI.loadFile = function(file){
     if (!res.ok) { UI.showError(res.message); return; }
     UI.applyRows(res.rows, res.fields, file.name, res.note);
   });
+};
+
+UI.importDrawJSON = function(file){
+  UI.clearError();
+  UI.setBusy(true, 'Reading ' + file.name + '\u2026');
+  var reader = new FileReader();
+  reader.onload = function(){
+    UI.setBusy(false);
+    var payload;
+    try { payload = JSON.parse(reader.result); }
+    catch (err) { UI.showError('That .draw.json file is corrupted or not valid JSON.'); return; }
+    UI.restoreDashboardState(payload, file.name);
+  };
+  reader.onerror = function(){
+    UI.setBusy(false);
+    UI.showError('Couldn\u2019t read ' + file.name + '.');
+  };
+  reader.readAsText(file);
 };
 UI.loadCSVText = function(text, label){
   UI.clearError();
@@ -2214,7 +2393,7 @@ UI.loadCSVText = function(text, label){
 UI.applyRows = function(rows, fields, label, note){
   if (!rows || !rows.length) { UI.showError('That file doesn\u2019t have any rows to chart.'); return; }
   var store = Data.buildColumnarStore(rows, fields);
-  Store.set({ dataset: store, sourceName: label });
+  Store.set({ dataset: store, sourceName: label, rawRows: rows, rawFields: fields });
   var spec = Spec.autoRecommend(store.columns);
   if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in ' + label + '.'); return; }
 
@@ -2237,6 +2416,7 @@ UI.applyRows = function(rows, fields, label, note){
       UI.clearError();
       if (note) UI.toast(note);
       UI.connectPanelCharts();
+      Persistence.saveDataset(rows, fields, label);
     } else {
       UI.els.onboarding.hidden = false;
       UI.els.workspace.hidden = true;
@@ -2283,6 +2463,7 @@ UI.commitSpec = function(newSpec){
   UI.historyIndex = UI.history.length - 1;
   UI.syncTitleElement();
   UI.renderInspector();
+  Persistence.saveDashboard();
   return true;
 };
 
@@ -2342,12 +2523,14 @@ UI.deleteChart = function(){
   Filters.list = Filters.list.filter(function(f){ return f.panelId !== panel.id; });
 
   if (UI.panels.length === 0) {
-    Store.set({ dataset: null, sourceName: null });
+    Store.set({ dataset: null, sourceName: null, rawRows: null, rawFields: null });
     UI.closeInspector();
     UI.clearError();
     UI.manualData = null;
     Filters.clearAll();
     UI.renderFilterPills();
+    Persistence.clearDashboard();
+    Persistence.clearDataset();
     UI.els.workspace.hidden = true;
     UI.els.onboarding.hidden = false;
     UI.els.addChartBtn.hidden = true;
@@ -2452,6 +2635,26 @@ UI.exportCSV = function(panel){
   triggerDownload(url, 'draw-data.csv');
   URL.revokeObjectURL(url);
   UI.toast('CSV downloaded');
+};
+
+UI.exportDrawJSON = function(){
+  var state = Store.get();
+  if (!state.rawRows || !state.rawFields) { UI.toast('Nothing to export yet.'); return; }
+  var payload = {
+    version: 1,
+    sourceName: state.sourceName,
+    fields: state.rawFields,
+    rows: state.rawRows,
+    panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }),
+    filters: Filters.list,
+    activeIndex: UI.activeIndex,
+    nextPanelId: UI._nextPanelId
+  };
+  var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  triggerDownload(url, 'dashboard.draw.json');
+  URL.revokeObjectURL(url);
+  UI.toast('Dashboard exported');
 };
 
 UI.exportDashboardPNG = function(){
@@ -2642,6 +2845,7 @@ document.addEventListener('DOMContentLoaded', function(){
     return;
   }
   registerKilnTheme();
+  UI.restoreSession();
 });
 </script>
 </body>
