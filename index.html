@@ -398,6 +398,18 @@ table.manual-grid tr:first-child td{
 }
 table.manual-grid td:focus{background:var(--accent-quiet);}
 .modal-actions{display:flex;align-items:center;justify-content:space-between;margin-top:var(--sp-4);}
+.sheet-list{display:flex;flex-direction:column;gap:4px;max-height:400px;overflow:auto;}
+.sheet-list button{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 14px;
+  background:var(--glass);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  color:var(--ink);font-size:14px;text-align:left;
+  cursor:pointer;
+}
+.sheet-list button:hover{background:var(--accent-quiet);border-color:var(--accent);color:var(--accent);}
+.sheet-list button svg{width:18px;height:18px;flex-shrink:0;color:var(--ink-2);}
 .modal-actions-left{display:flex;gap:var(--sp-2);}
 .chip-btn{
   display:inline-flex;align-items:center;gap:6px;
@@ -693,6 +705,19 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
         </div>
         <button type="button" class="btn-primary" id="manualSubmit">Chart this</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="sheetPickerOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="sheetPickerTitle">
+      <div class="modal-header">
+        <h2 id="sheetPickerTitle">Choose a sheet</h2>
+        <button type="button" class="icon-btn" id="sheetPickerClose" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg>
+        </button>
+      </div>
+      <p class="modal-hint">This file has multiple sheets. Pick one to chart.</p>
+      <div class="sheet-list" id="sheetList"></div>
     </div>
   </div>
 
@@ -1113,12 +1138,12 @@ Data.fromXLSXFile = function(file, onDone){
     reader.onload = function(e){
       try {
         var wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-        var sheetName = wb.SheetNames[0];
-        var sheet = wb.Sheets[sheetName];
-        var rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
-        var fields = rows.length ? Object.keys(rows[0]) : (sheet['!ref'] ? [] : []);
-        var note = wb.SheetNames.length > 1 ? 'Using sheet \u201c' + sheetName + '\u201d \u2014 other sheets aren\u2019t read yet.' : null;
-        onDone({ ok: true, rows: rows, fields: fields, note: note });
+        if (wb.SheetNames.length > 1) {
+          onDone({ ok: true, needsSheetPick: true, workbook: wb, sheetNames: wb.SheetNames });
+          return;
+        }
+        var extracted = Data.extractSheet(wb, wb.SheetNames[0]);
+        onDone({ ok: true, rows: extracted.rows, fields: extracted.fields });
       } catch (err) {
         onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' });
       }
@@ -1126,6 +1151,13 @@ Data.fromXLSXFile = function(file, onDone){
     reader.onerror = function(){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); };
     reader.readAsArrayBuffer(file);
   });
+};
+
+Data.extractSheet = function(workbook, sheetName){
+  var sheet = workbook.Sheets[sheetName];
+  var rows = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true });
+  var fields = rows.length ? Object.keys(rows[0]) : [];
+  return { rows: rows, fields: fields };
 };
 
 Data.asyncBufferFromFile = function(file){
@@ -1632,6 +1664,14 @@ Persistence.clearDashboard = function(){
 
 var Render = {};
 
+function histogramBucketLabel(lo, hi, width){
+  if (width >= 1000) return Spec.formatCompact(lo) + '\u2013' + Spec.formatCompact(hi);
+  var decimals = (width > 0 && width < 1) ? Math.min(4, Math.max(1, Math.ceil(-Math.log10(width)))) : 0;
+  var loStr = decimals ? lo.toFixed(decimals) : String(Math.round(lo));
+  var hiStr = decimals ? hi.toFixed(decimals) : String(Math.round(hi));
+  return loStr + '\u2013' + hiStr;
+}
+
 Render.buildOption = function(spec, columns, mask){
   var currency = spec.currency;
   var fmt = function(v){ return (currency ? '$' : '') + Spec.formatCompact(v); };
@@ -1709,6 +1749,7 @@ Render.buildOption = function(spec, columns, mask){
   if (spec.type === 'scatter') {
     var xCol = findColumn(columns, spec.xField);
     var yCol = findColumn(columns, spec.yField);
+    var isDateX = xCol.type === 'date';
     var n = xCol.values.length;
     var points = [];
     for (var i=0;i<n;i++){
@@ -1716,16 +1757,26 @@ Render.buildOption = function(spec, columns, mask){
       var x = xCol.values[i], y = yCol.values[i];
       if (!isNaN(x) && !isNaN(y)) points.push([x,y]);
     }
+    var xLabel = titleCase(spec.xField), yLabel = titleCase(spec.yField);
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
-      xAxis: { type: 'value', name: titleCase(spec.xField), nameLocation: 'middle', nameGap: 32 },
-      yAxis: { type: 'value', name: titleCase(spec.yField), nameLocation: 'middle', nameGap: 44 },
+      xAxis: isDateX
+        ? { type: 'time', name: xLabel, nameLocation: 'middle', nameGap: 32 }
+        : { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 32 },
+      yAxis: { type: 'value', name: yLabel, nameLocation: 'middle', nameGap: 44 },
       dataZoom: [
         { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
         { type: 'inside', yAxisIndex: 0, filterMode: 'none' }
       ],
       series: [{ type: 'scatter', symbolSize: spec.pointSize || 8, data: points, large: points.length > 2000, progressive: 2000 }],
-      tooltip: { trigger: 'item' }
+      tooltip: {
+        trigger: 'item',
+        formatter: function(params){
+          var xv = isDateX ? dayKey(params.value[0]) : Spec.formatCompact(params.value[0]);
+          var yv = Spec.formatCompact(params.value[1]);
+          return xLabel + ': ' + xv + '<br>' + yLabel + ': ' + yv;
+        }
+      }
     };
   }
 
@@ -1754,7 +1805,7 @@ Render.buildOption = function(spec, columns, mask){
       if (b < 0) b = 0;
       counts[b]++;
     }
-    var labels = counts.map(function(_, i){ return Spec.formatCompact(min + i*width); });
+    var labels = counts.map(function(_, i){ return histogramBucketLabel(min + i*width, min + (i+1)*width, width); });
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
       xAxis: { type: 'category', data: labels, axisLabel: { rotate: 30 } },
@@ -1843,6 +1894,9 @@ UI.init = function(){
   UI.els.sampleBtn = document.getElementById('sampleBtn');
   UI.els.manualBtn = document.getElementById('manualBtn');
   UI.els.manualOverlay = document.getElementById('manualOverlay');
+  UI.els.sheetPickerOverlay = document.getElementById('sheetPickerOverlay');
+  UI.els.sheetList = document.getElementById('sheetList');
+  UI.els.sheetPickerClose = document.getElementById('sheetPickerClose');
   UI.els.manualClose = document.getElementById('manualClose');
   UI.els.manualGrid = document.getElementById('manualGrid');
   UI.els.manualAddRow = document.getElementById('manualAddRow');
@@ -1917,8 +1971,13 @@ UI.init = function(){
   UI.els.manualAddRow.addEventListener('click', UI.manualAddRow);
   UI.els.manualAddCol.addEventListener('click', UI.manualAddCol);
   UI.els.manualSubmit.addEventListener('click', UI.submitManualEntry);
+  UI.els.sheetPickerClose.addEventListener('click', UI.closeSheetPicker);
+  UI.els.sheetPickerOverlay.addEventListener('click', function(e){
+    if (e.target === UI.els.sheetPickerOverlay) UI.closeSheetPicker();
+  });
   window.addEventListener('keydown', function(e){
     if (e.key === 'Escape' && !UI.els.manualOverlay.hidden) UI.closeManualEntry();
+    if (e.key === 'Escape' && !UI.els.sheetPickerOverlay.hidden) UI.closeSheetPicker();
   });
 
   UI.els.inspectorClose.addEventListener('click', UI.closeInspector);
@@ -2355,6 +2414,30 @@ UI.closeManualEntry = function(){
   UI.els.manualOverlay.hidden = true;
 };
 
+UI.openSheetPicker = function(workbook, sheetNames, fileName){
+  UI.els.sheetList.innerHTML = '';
+  sheetNames.forEach(function(name){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sheets"/></svg><span></span>';
+    btn.querySelector('span').textContent = name;
+    btn.addEventListener('click', function(){
+      var extracted = Data.extractSheet(workbook, name);
+      UI.closeSheetPicker();
+      UI.applyRows(extracted.rows, extracted.fields, fileName + ' \u2014 ' + name);
+    });
+    UI.els.sheetList.appendChild(btn);
+  });
+  UI.els.sheetPickerOverlay.hidden = false;
+  requestAnimationFrame(function(){
+    var firstBtn = UI.els.sheetList.querySelector('button');
+    if (firstBtn) firstBtn.focus();
+  });
+};
+UI.closeSheetPicker = function(){
+  UI.els.sheetPickerOverlay.hidden = true;
+};
+
 UI.renderManualGrid = function(){
   var grid = UI.els.manualGrid;
   grid.innerHTML = '';
@@ -2430,6 +2513,7 @@ UI.loadFile = function(file){
   Data.fromFile(file, function(res){
     UI.setBusy(false);
     if (!res.ok) { UI.showError(res.message); return; }
+    if (res.needsSheetPick) { UI.openSheetPicker(res.workbook, res.sheetNames, file.name); return; }
     UI.applyRows(res.rows, res.fields, file.name, res.note);
   });
 };
@@ -2783,7 +2867,7 @@ UI.renderInspector = function(){
   CHART_TYPES.forEach(function(t){
     if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0 && numCols.length > 0;
     else if (t.value === 'bar' || t.value === 'donut') typeAvailable[t.value] = catCols.length > 0;
-    else if (t.value === 'scatter') typeAvailable[t.value] = numCols.length >= 2;
+    else if (t.value === 'scatter') typeAvailable[t.value] = numCols.length >= 2 || (dateCols.length >= 1 && numCols.length >= 1);
     else if (t.value === 'histogram') typeAvailable[t.value] = numCols.length >= 1;
     else typeAvailable[t.value] = true;
   });
@@ -2811,7 +2895,7 @@ UI.renderInspector = function(){
     fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
   } else if (spec.type === 'scatter') {
-    fieldsHtml += fieldRow('X field', 'xField', numCols, spec.xField);
+    fieldsHtml += fieldRow('X field', 'xField', dateCols.concat(numCols), spec.xField);
     fieldsHtml += fieldRow('Y field', 'yField', numCols, spec.yField);
   } else if (spec.type === 'histogram') {
     fieldsHtml += fieldRow('Field', 'xField', numCols, spec.xField);
@@ -2894,10 +2978,11 @@ UI.changeChartType = function(newType){
     newSpec = v2 ? Spec.buildCategoryNumeric(c, v2) : Spec.buildCategoryCount(c);
     newSpec.type = newType;
   } else if (newType === 'scatter') {
-    var x = pick(numCols, old.xField);
+    var xCandidates = dateCols.concat(numCols);
+    var x = pick(xCandidates, old.xField);
     var yCandidates = numCols.filter(function(c){ return !x || c.name !== x.name; });
     var y = pick(yCandidates, old.yField) || pick(numCols, old.yField);
-    if (!x || !y) { UI.toast('Need two number columns for that.'); return; }
+    if (!x || !y) { UI.toast('Need a date or number column for X, and a number column for Y.'); return; }
     newSpec = Spec.buildScatter(x, y);
   } else if (newType === 'histogram') {
     var h = pick(numCols, old.xField) || pick(numCols, old.yField);
