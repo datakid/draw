@@ -218,6 +218,9 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 }
 .export-menu:not([hidden]){display:flex;}
 .export-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
+.export-menu-more{flex-direction:column;gap:2px;margin-top:2px;padding-top:4px;border-top:1px solid var(--hairline);}
+.export-menu-more:not([hidden]){display:flex;}
+.export-menu [data-export="more"][aria-expanded="true"]{color:var(--accent);}
 .export-menu button{
   display:flex;align-items:center;gap:10px;
   padding:8px 10px;
@@ -574,6 +577,12 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
     <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 7.5 4.5 12 9 16.5M15 7.5 19.5 12 15 16.5"/>
+    </symbol>
+
+    <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <circle cx="5.5" cy="12" r="1.7"/>
+      <circle cx="12" cy="12" r="1.7"/>
+      <circle cx="18.5" cy="12" r="1.7"/>
     </symbol>
 
     <symbol id="i-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -2307,6 +2316,12 @@ UI.panelCardHtml = function(){
       '<button type="button" role="menuitem" data-export="copy"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy image</button>' +
       '<button type="button" role="menuitem" data-export="png2"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG</button>' +
       '<button type="button" role="menuitem" data-export="csv"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Download data (CSV)</button>' +
+      '<button type="button" role="menuitem" data-export="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>More\u2026</button>' +
+      '<div class="export-menu-more" hidden>' +
+        '<button type="button" role="menuitem" data-export="png3"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (3\u00d7)</button>' +
+        '<button type="button" role="menuitem" data-export="png-transparent"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (transparent)</button>' +
+        '<button type="button" role="menuitem" data-export="svg"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-code"/></svg>Download SVG</button>' +
+      '</div>' +
     '</div>' +
     '<h2 class="chart-title" contenteditable="true" spellcheck="false" role="textbox" aria-label="Chart title"></h2>' +
     '<div class="chart-canvas"></div>' +
@@ -2390,6 +2405,26 @@ UI.mountPanel = function(panel){
     UI.exportCSV(panel);
     UI.closeAllExportMenus();
   });
+  var moreBtn = exportMenu.querySelector('[data-export="more"]');
+  var moreSection = exportMenu.querySelector('.export-menu-more');
+  moreBtn.addEventListener('click', function(){
+    var expanding = moreSection.hidden;
+    moreSection.hidden = !expanding;
+    moreBtn.setAttribute('aria-expanded', String(expanding));
+    UI.repositionExportMenu(exportBtn, exportMenu);
+  });
+  exportMenu.querySelector('[data-export="png3"]').addEventListener('click', function(){
+    UI.exportChartPNG(panel, { scale: 3 });
+    UI.closeAllExportMenus();
+  });
+  exportMenu.querySelector('[data-export="png-transparent"]').addEventListener('click', function(){
+    UI.exportChartPNG(panel, { transparent: true });
+    UI.closeAllExportMenus();
+  });
+  exportMenu.querySelector('[data-export="svg"]').addEventListener('click', function(){
+    UI.exportSVG(panel);
+    UI.closeAllExportMenus();
+  });
   card.querySelector('[data-action="delete"]').addEventListener('click', function(e){
     e.stopPropagation();
     var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
@@ -2405,18 +2440,22 @@ UI.openExportMenu = function(btn, menu){
   btn.setAttribute('aria-expanded', 'true');
   UI._openExportMenu = menu;
   UI._openExportBtn = btn;
+  UI.repositionExportMenu(btn, menu);
+  var first = menu.querySelector('[role="menuitem"]');
+  if (first) first.focus();
+};
+
+UI.repositionExportMenu = function(btn, menu){
   var r = btn.getBoundingClientRect();
   var m = menu.getBoundingClientRect();
   var left = Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8));
   var top = (r.bottom + m.height + 8 > window.innerHeight) ? (r.top - m.height - 8) : (r.bottom + 8);
   top = Math.max(8, top);
   Object.assign(menu.style, { position: 'fixed', left: left + 'px', top: top + 'px' });
-  var first = menu.querySelector('[role="menuitem"]');
-  if (first) first.focus();
 };
 
 UI.handleExportMenuKeydown = function(e, menu){
-  var items = Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
+  var items = getFocusable(menu);
   var i = items.indexOf(document.activeElement);
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -2442,6 +2481,8 @@ UI.closeAllExportMenus = function(opts){
   var restoreFocus = opts && opts.restoreFocus && UI._openExportBtn;
   Array.prototype.forEach.call(document.querySelectorAll('.export-menu'), function(m){ m.hidden = true; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-action="export"]'), function(b){ b.setAttribute('aria-expanded', 'false'); });
+  Array.prototype.forEach.call(document.querySelectorAll('.export-menu-more'), function(s){ s.hidden = true; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-export="more"]'), function(b){ b.setAttribute('aria-expanded', 'false'); });
   UI._openExportMenu = null;
   UI._openExportBtn = null;
   if (restoreFocus) restoreFocus.focus();
