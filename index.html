@@ -106,7 +106,8 @@ body.is-interacting .topbar{backdrop-filter:none;-webkit-backdrop-filter:none;}
 @keyframes mkPulse{0%,100%{transform:scaleY(.55);}45%{transform:scaleY(1);}}
 @keyframes mkFade{0%,100%{opacity:.25;}45%{opacity:1;}}
 .busy-mark{width:20px;height:20px;color:var(--ink-2);flex-shrink:0;}
-.busy-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink-2);}
+.busy-row{align-items:center;gap:10px;font-size:13px;color:var(--ink-2);}
+.busy-row:not([hidden]){display:flex;}
 
 main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 
@@ -193,7 +194,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 }
 .icon-btn{
   width:36px;height:36px;
-  display:flex;align-items:center;justify-content:center;
+  align-items:center;justify-content:center;
   background:var(--glass-strong);
   border:1px solid var(--hairline);
   border-radius:var(--radius-control);
@@ -201,6 +202,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
   cursor:pointer;
   transition:background .15s var(--ease),color .15s var(--ease);
 }
+.icon-btn:not([hidden]){display:flex;}
 .icon-btn:hover{background:var(--accent-quiet);color:var(--accent);}
 .export-menu{
   position:fixed;
@@ -212,8 +214,9 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
   min-width:200px;
   max-width:calc(100vw - 16px);
   z-index:10000000;
-  display:flex;flex-direction:column;gap:2px;
+  flex-direction:column;gap:2px;
 }
+.export-menu:not([hidden]){display:flex;}
 .export-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
 .export-menu button{
   display:flex;align-items:center;gap:10px;
@@ -302,7 +305,8 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .type-tile.is-selected{border-color:var(--accent);color:var(--ink);background:var(--glass-strong);}
 .type-tile.is-unavailable{opacity:.4;}
 .type-tile .tile-badge{position:absolute;top:6px;right:6px;width:13px;height:13px;color:var(--accent);}
-.filter-pills{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.filter-pills{align-items:center;gap:8px;flex-wrap:wrap;}
+.filter-pills:not([hidden]){display:flex;}
 .filter-pill{
   display:flex;align-items:center;gap:6px;
   padding:6px 10px;
@@ -1234,8 +1238,27 @@ function findColumn(columns, name){
   for (var i=0;i<columns.length;i++){ if (columns[i].name === name) return columns[i]; }
   return null;
 }
+function collapseTopN(namesByTotalDesc, n){
+  var top = namesByTotalDesc.slice(0, n);
+  var rest = namesByTotalDesc.slice(n);
+  return { top: top, rest: rest, hasOther: rest.length > 0 };
+}
 function titleCase(s){
   return String(s).replace(/[_\-]+/g,' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }).trim();
+}
+var ORDINAL_LEVEL_SETS = [
+  ['q1','q2','q3','q4'],
+  ['mon','tue','wed','thu','fri','sat','sun'],
+  ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'],
+  ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'],
+  ['january','february','march','april','may','june','july','august','september','october','november','december']
+];
+function looksOrdinal(levels){
+  if (!levels || levels.length < 3 || levels.length > 12) return false;
+  var normalized = levels.map(function(l){ return String(l).trim().toLowerCase(); });
+  return ORDINAL_LEVEL_SETS.some(function(seq){
+    return normalized.every(function(v){ return seq.indexOf(v) >= 0; });
+  });
 }
 function escapeHtml(s){
   return String(s).replace(/[&<>"']/g, function(c){
@@ -1335,6 +1358,16 @@ Spec.buildTimeSeries = function(dateCol, numCol){
   return spec;
 };
 
+Spec.buildTimeSeriesCount = function(dateCol){
+  var spec = { type: 'area', xField: dateCol.name, yField: null, aggregation: 'count', showPoints: true };
+  spec.title = Spec.regenerateTitle(spec);
+  return spec;
+};
+
+Spec.defaultSortMode = function(catCol){
+  return looksOrdinal(catCol.levels) ? 'first-seen' : 'value-desc';
+};
+
 Spec.buildCategoryNumeric = function(catCol, numCol){
   var agg = Spec.pickAggregation(numCol.name);
   var allPositive = columnAllPositive(numCol);
@@ -1345,7 +1378,8 @@ Spec.buildCategoryNumeric = function(catCol, numCol){
     yField: numCol.name,
     aggregation: agg,
     currency: Spec.isCurrency(numCol.name),
-    showLabels: false
+    showLabels: false,
+    sortMode: Spec.defaultSortMode(catCol)
   };
   spec.title = Spec.regenerateTitle(spec);
   return spec;
@@ -1358,7 +1392,7 @@ Spec.buildScatter = function(colA, colB){
 };
 
 Spec.buildCategoryCount = function(catCol){
-  var spec = { type: 'bar', xField: catCol.name, yField: null, aggregation: 'count', showLabels: false };
+  var spec = { type: 'bar', xField: catCol.name, yField: null, aggregation: 'count', showLabels: false, sortMode: Spec.defaultSortMode(catCol) };
   spec.title = Spec.regenerateTitle(spec);
   return spec;
 };
@@ -1391,6 +1425,15 @@ Spec.candidates = function(columns){
     });
   }
 
+  if (dates.length && !numeric.length) {
+    var dcCount = dates[0];
+    candidates.push({
+      spec: Spec.buildTimeSeriesCount(dcCount),
+      score: 95 - penalty([dcCount]),
+      reason: 'date, no numeric \u2192 count over time'
+    });
+  }
+
   if (lowCat.length && numeric.length && columnAllPositive(numeric[0])) {
     var donutCat = lowCat[0], donutNum = numeric[0];
     candidates.push({
@@ -1409,7 +1452,8 @@ Spec.candidates = function(columns){
       yField: barNum.name,
       aggregation: agg,
       currency: Spec.isCurrency(barNum.name),
-      showLabels: false
+      showLabels: false,
+      sortMode: Spec.defaultSortMode(barCat)
     };
     barSpec.title = Spec.regenerateTitle(barSpec);
     candidates.push({
@@ -1471,33 +1515,101 @@ Spec.applyTopN = function(rows, n, aggregation){
   return top;
 };
 
-Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation, mask){
+Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation, mask, seriesFieldName){
   var catCol = findColumn(columns, catFieldName);
   var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
   var n = catCol.values.length;
-  var sums = new Map();
-  var counts = new Map();
-  for (var i=0;i<n;i++){
-    if (mask && !mask[i]) continue;
-    var idx = catCol.values[i];
-    if (idx < 0) continue;
-    var label = catCol.levels[idx];
-    var v = numCol ? numCol.values[i] : 1;
-    if (numCol && aggregation !== 'count' && isNaN(v)) continue;
-    sums.set(label, (sums.get(label) || 0) + (isNaN(v) ? 0 : v));
-    counts.set(label, (counts.get(label) || 0) + 1);
+
+  if (!seriesFieldName) {
+    var sums = new Map();
+    var counts = new Map();
+    var firstSeen = [];
+    for (var i=0;i<n;i++){
+      if (mask && !mask[i]) continue;
+      var idx = catCol.values[i];
+      if (idx < 0) continue;
+      var label = catCol.levels[idx];
+      var v = numCol ? numCol.values[i] : 1;
+      if (numCol && aggregation !== 'count' && isNaN(v)) continue;
+      if (!sums.has(label)) firstSeen.push(label);
+      sums.set(label, (sums.get(label) || 0) + (isNaN(v) ? 0 : v));
+      counts.set(label, (counts.get(label) || 0) + 1);
+    }
+    var labels = Array.from(sums.keys());
+    var result = labels.map(function(label){
+      var count = counts.get(label);
+      var value;
+      if (aggregation === 'avg') value = sums.get(label) / count;
+      else if (aggregation === 'count') value = count;
+      else value = sums.get(label);
+      return { label: label, value: value, count: count };
+    });
+    result.sort(function(a,b){ return b.value - a.value; });
+    result.firstSeen = firstSeen;
+    return result;
   }
-  var labels = Array.from(sums.keys());
-  var result = labels.map(function(label){
-    var count = counts.get(label);
-    var value;
-    if (aggregation === 'avg') value = sums.get(label) / count;
-    else if (aggregation === 'count') value = count;
-    else value = sums.get(label);
-    return { label: label, value: value, count: count };
+
+  var seriesCol = findColumn(columns, seriesFieldName);
+  var cellSum = new Map(), cellCount = new Map();
+  var catTotal = new Map(), serTotal = new Map();
+  var catFirstSeen = [];
+  for (var j=0;j<n;j++){
+    if (mask && !mask[j]) continue;
+    var cIdx = catCol.values[j];
+    if (cIdx < 0) continue;
+    var sIdx = seriesCol.values[j];
+    if (sIdx < 0 || !seriesCol.levels) continue;
+    var catLabel = catCol.levels[cIdx];
+    var serLabel = seriesCol.levels[sIdx];
+    var v2 = numCol ? numCol.values[j] : 1;
+    if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
+    var vv = isNaN(v2) ? 0 : v2;
+    var key = catLabel + '\u0000' + serLabel;
+    if (!cellSum.has(key)) {}
+    if (!catTotal.has(catLabel)) catFirstSeen.push(catLabel);
+    cellSum.set(key, (cellSum.get(key) || 0) + vv);
+    cellCount.set(key, (cellCount.get(key) || 0) + 1);
+    catTotal.set(catLabel, (catTotal.get(catLabel) || 0) + vv);
+    serTotal.set(serLabel, (serTotal.get(serLabel) || 0) + vv);
+  }
+
+  var catNames = Array.from(catTotal.keys()).sort(function(a,b){ return catTotal.get(b) - catTotal.get(a); });
+  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
+  var catCap = collapseTopN(catNames, 12);
+  var serCap = collapseTopN(serNames, 6);
+
+  function cellValue(rawCats, rawSers){
+    var sum = 0, count = 0;
+    for (var a=0;a<rawCats.length;a++){
+      for (var b=0;b<rawSers.length;b++){
+        var k = rawCats[a] + '\u0000' + rawSers[b];
+        if (cellSum.has(k)) { sum += cellSum.get(k); count += cellCount.get(k); }
+      }
+    }
+    if (aggregation === 'avg') return count ? sum / count : 0;
+    if (aggregation === 'count') return count;
+    return sum;
+  }
+
+  var finalCatNames = catCap.top.concat(catCap.hasOther ? ['Other'] : []);
+  var finalSerNames = serCap.top.concat(serCap.hasOther ? ['Other'] : []);
+
+  var seriesOut = finalSerNames.map(function(serName){
+    var rawSers = serName === 'Other' ? serCap.rest : [serName];
+    return {
+      name: serName,
+      data: finalCatNames.map(function(catName){
+        var rawCats = catName === 'Other' ? catCap.rest : [catName];
+        return cellValue(rawCats, rawSers);
+      })
+    };
   });
-  result.sort(function(a,b){ return b.value - a.value; });
-  return result;
+
+  return {
+    labels: finalCatNames,
+    series: seriesOut,
+    otherLabels: catCap.hasOther ? catCap.rest : null
+  };
 };
 
 function monthKey(ms){
@@ -1520,7 +1632,7 @@ function quarterKey(ms){
   return d.getUTCFullYear() + '-Q' + q;
 }
 
-Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask){
+Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask, seriesFieldName){
   var dateCol = findColumn(columns, dateFieldName);
   var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
   var n = dateCol.values.length;
@@ -1553,24 +1665,71 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
   }
 
   var bucketKeys = dateCol._bucketKeys;
-  var sums = new Map(); var counts = new Map();
-  for (var j=0;j<n;j++){
-    if (mask && !mask[j]) continue;
-    var key = bucketKeys[j];
-    if (key === null) continue;
-    var v = numCol ? numCol.values[j] : 1;
-    if (numCol && isNaN(v)) continue;
-    sums.set(key, (sums.get(key) || 0) + v);
-    counts.set(key, (counts.get(key) || 0) + 1);
+
+  if (!seriesFieldName) {
+    var sums = new Map(); var counts = new Map();
+    for (var j=0;j<n;j++){
+      if (mask && !mask[j]) continue;
+      var key = bucketKeys[j];
+      if (key === null) continue;
+      var v = numCol ? numCol.values[j] : 1;
+      if (numCol && isNaN(v)) continue;
+      sums.set(key, (sums.get(key) || 0) + v);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    var keys = Array.from(sums.keys()).sort();
+    return keys.map(function(k){
+      var value;
+      if (aggregation === 'avg') value = sums.get(k) / counts.get(k);
+      else if (aggregation === 'count') value = counts.get(k);
+      else value = sums.get(k);
+      return { label: k, value: value };
+    });
   }
-  var keys = Array.from(sums.keys()).sort();
-  return keys.map(function(k){
-    var value;
-    if (aggregation === 'avg') value = sums.get(k) / counts.get(k);
-    else if (aggregation === 'count') value = counts.get(k);
-    else value = sums.get(k);
-    return { label: k, value: value };
+
+  var seriesCol = findColumn(columns, seriesFieldName);
+  var cellSum = new Map(), cellCount = new Map();
+  var serTotal = new Map();
+  var allKeysSet = new Set();
+  for (var m=0;m<n;m++){
+    if (mask && !mask[m]) continue;
+    var dk = bucketKeys[m];
+    if (dk === null) continue;
+    var sIdx = seriesCol.values[m];
+    if (sIdx < 0 || !seriesCol.levels) continue;
+    var serLabel = seriesCol.levels[sIdx];
+    var v2 = numCol ? numCol.values[m] : 1;
+    if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
+    var vv = isNaN(v2) ? 0 : v2;
+    var cellKey = dk + '\u0000' + serLabel;
+    cellSum.set(cellKey, (cellSum.get(cellKey) || 0) + vv);
+    cellCount.set(cellKey, (cellCount.get(cellKey) || 0) + 1);
+    serTotal.set(serLabel, (serTotal.get(serLabel) || 0) + vv);
+    allKeysSet.add(dk);
+  }
+
+  var dateKeys = Array.from(allKeysSet).sort();
+  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
+  var serCap = collapseTopN(serNames, 6);
+  var finalSerNames = serCap.top.concat(serCap.hasOther ? ['Other'] : []);
+
+  function cellValue(dateKey, rawSers){
+    var sum = 0, count = 0;
+    for (var b=0;b<rawSers.length;b++){
+      var k = dateKey + '\u0000' + rawSers[b];
+      if (cellSum.has(k)) { sum += cellSum.get(k); count += cellCount.get(k); }
+    }
+    if (aggregation === 'avg') return count ? sum / count : 0;
+    if (aggregation === 'count') return count;
+    return sum;
+  }
+
+  var seriesOut = finalSerNames.map(function(serName){
+    var rawSers = serName === 'Other' ? serCap.rest : [serName];
+    return { name: serName, data: dateKeys.map(function(k){ return cellValue(k, rawSers); }) };
   });
+
+  return { labels: dateKeys, series: seriesOut };
 };
 
 var Filters = { list: [], _masks: {} };
@@ -1731,8 +1890,29 @@ Render.buildOption = function(spec, columns, mask){
   var fmt = function(v){ return (currency ? '$' : '') + Spec.formatCompact(v); };
 
   if (spec.type === 'line' || spec.type === 'area') {
-    var tsRows = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask);
     var showPoints = spec.showPoints !== false;
+    if (spec.seriesField) {
+      var tsMulti = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField);
+      return {
+        grid: { left: 16, right: 24, top: 24, bottom: 56, containLabel: true },
+        xAxis: { type: 'category', data: tsMulti.labels },
+        yAxis: { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } },
+        legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+        series: tsMulti.series.map(function(s){
+          return {
+            name: s.name,
+            type: 'line',
+            smooth: true,
+            symbol: showPoints ? 'circle' : 'none',
+            symbolSize: 6,
+            areaStyle: spec.type === 'area' ? { opacity: 0.18 } : null,
+            data: s.data
+          };
+        }),
+        tooltip: { trigger: 'axis', valueFormatter: fmt }
+      };
+    }
+    var tsRows = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask);
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
       xAxis: { type: 'category', data: tsRows.map(function(r){ return r.label; }) },
@@ -1750,10 +1930,45 @@ Render.buildOption = function(spec, columns, mask){
   }
 
   if (spec.type === 'bar') {
+    var showLabels = !!spec.showLabels;
+    if (spec.seriesField) {
+      var barMulti = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField);
+      var horizontalMulti = barMulti.labels.length > 8;
+      var lastIdx = barMulti.labels.length - 1;
+      var optionMulti = {
+        grid: { left: 16, right: 24, top: 24, bottom: 56, containLabel: true },
+        legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+        series: barMulti.series.map(function(s){
+          return {
+            name: s.name,
+            type: 'bar',
+            stack: 'total',
+            barMaxWidth: 36,
+            label: {
+              show: showLabels,
+              formatter: function(p){ return fmt(p.value); },
+              color: PALETTE.ink2,
+              fontSize: 11
+            },
+            data: s.data.map(function(v, idx){
+              return (idx === lastIdx && barMulti.otherLabels) ? { value: v, otherLabels: barMulti.otherLabels } : v;
+            })
+          };
+        }),
+        tooltip: { trigger: 'axis', valueFormatter: fmt }
+      };
+      if (horizontalMulti) {
+        optionMulti.yAxis = { type: 'category', data: barMulti.labels, axisLabel: { width: 100, overflow: 'truncate' } };
+        optionMulti.xAxis = { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } };
+      } else {
+        optionMulti.xAxis = { type: 'category', data: barMulti.labels, axisLabel: { rotate: barMulti.labels.length > 5 ? 30 : 0 } };
+        optionMulti.yAxis = { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } };
+      }
+      return optionMulti;
+    }
     var rows = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask);
     rows = Spec.applyTopN(rows, 12, spec.aggregation);
     var horizontal = rows.length > 8;
-    var showLabels = !!spec.showLabels;
     var option = {
       grid: { left: 16, right: 24, top: 24, bottom: 24, containLabel: true },
       series: [{
@@ -1896,6 +2111,10 @@ function fieldRow(label, role, cols, selected){
 }
 function fieldRowWithCount(label, role, cols, selected){
   var opts = '<option value=""' + (selected ? '' : ' selected') + '>Row count</option>' + optionsHtml(cols, selected);
+  return '<div class="field-row"><label>' + escapeHtml(label) + '</label><select data-role="' + role + '">' + opts + '</select></div>';
+}
+function fieldRowWithNone(label, role, cols, selected){
+  var opts = '<option value=""' + (selected ? '' : ' selected') + '>None</option>' + optionsHtml(cols, selected);
   return '<div class="field-row"><label>' + escapeHtml(label) + '</label><select data-role="' + role + '">' + opts + '</select></div>';
 }
 function aggRow(selected){
@@ -2993,7 +3212,7 @@ UI.renderInspector = function(){
 
   var typeAvailable = {};
   CHART_TYPES.forEach(function(t){
-    if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0 && numCols.length > 0;
+    if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0;
     else if (t.value === 'bar' || t.value === 'donut') typeAvailable[t.value] = catCols.length > 0;
     else if (t.value === 'scatter') typeAvailable[t.value] = numCols.length >= 2 || (dateCols.length >= 1 && numCols.length >= 1);
     else if (t.value === 'histogram') typeAvailable[t.value] = numCols.length >= 1;
@@ -3005,9 +3224,10 @@ UI.renderInspector = function(){
       var isSelected = t.value === spec.type;
       var classes = 'type-tile' + (isSelected ? ' is-selected' : '') + (typeAvailable[t.value] ? '' : ' is-unavailable');
       var badge = (t.value === recommendedType) ? '<svg class="tile-badge" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>' : '';
+      var iconId = (t.value === 'bar' && spec.seriesField) ? 'i-chart-stacked' : ('i-chart-' + t.value);
       return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(t.label) + '" aria-pressed="' + isSelected + '">' +
         badge +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart-' + t.value + '"/></svg>' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#' + iconId + '"/></svg>' +
         '<span>' + escapeHtml(t.label) + '</span>' +
         '</button>';
     }).join('') +
@@ -3016,12 +3236,17 @@ UI.renderInspector = function(){
   var fieldsHtml = '';
   if (spec.type === 'line' || spec.type === 'area') {
     fieldsHtml += fieldRow('Date field', 'xField', dateCols, spec.xField);
-    fieldsHtml += fieldRow('Value field', 'yField', numCols, spec.yField);
+    fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
+    fieldsHtml += fieldRowWithNone('Split by', 'seriesField', catCols, spec.seriesField);
   } else if (spec.type === 'bar' || spec.type === 'donut') {
     fieldsHtml += fieldRow('Category field', 'xField', catCols, spec.xField);
     fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
+    if (spec.type === 'bar') {
+      var splitCols = catCols.filter(function(c){ return c.name !== spec.xField; });
+      fieldsHtml += fieldRowWithNone('Split by', 'seriesField', splitCols, spec.seriesField);
+    }
   } else if (spec.type === 'scatter') {
     fieldsHtml += fieldRow('X field', 'xField', dateCols.concat(numCols), spec.xField);
     fieldsHtml += fieldRow('Y field', 'yField', numCols, spec.yField);
@@ -3069,6 +3294,8 @@ UI.updateSpecField = function(role, value){
   if (role === 'yField') {
     spec.yField = value === '' ? null : value;
     if (!spec.yField) spec.aggregation = 'count';
+  } else if (role === 'seriesField') {
+    spec.seriesField = value === '' ? null : value;
   } else if (role === 'pointSize' || role === 'buckets') {
     spec[role] = parseInt(value, 10);
   } else {
@@ -3077,6 +3304,7 @@ UI.updateSpecField = function(role, value){
   if ((role === 'xField' || role === 'yField') && spec.yField) {
     spec.currency = Spec.isCurrency(spec.yField);
   }
+  if (role === 'xField' && spec.seriesField === spec.xField) spec.seriesField = null;
   if (!spec.titleCustom) spec.title = Spec.regenerateTitle(spec);
   UI.commitSpec(spec);
 };
@@ -3096,9 +3324,10 @@ UI.changeChartType = function(newType){
 
   var newSpec = null;
   if (newType === 'line' || newType === 'area') {
-    var d = pick(dateCols, old.xField), v = pick(numCols, old.yField);
-    if (!d || !v) { UI.toast('Need a date column and a number column for that.'); return; }
-    newSpec = Spec.buildTimeSeries(d, v);
+    var d = pick(dateCols, old.xField);
+    if (!d) { UI.toast('Need a date column for that.'); return; }
+    var v = old.yField ? pick(numCols, old.yField) : null;
+    newSpec = v ? Spec.buildTimeSeries(d, v) : Spec.buildTimeSeriesCount(d);
     newSpec.type = newType;
   } else if (newType === 'bar' || newType === 'donut') {
     var c = pick(catCols, old.xField), v2 = old.yField ? pick(numCols, old.yField) : null;
