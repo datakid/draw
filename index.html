@@ -184,12 +184,13 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .chart-toolbar{
   position:absolute;top:var(--sp-4);right:var(--sp-4);
   display:flex;gap:var(--sp-2);
-  opacity:0;
-  transition:opacity .18s var(--ease);
   z-index:5;
 }
-.chart-card:hover .chart-toolbar,
-.chart-card:focus-within .chart-toolbar{opacity:1;}
+@media (hover:hover){
+  .chart-toolbar{opacity:0;transition:opacity .18s var(--ease);}
+  .chart-card:hover .chart-toolbar,
+  .chart-card:focus-within .chart-toolbar{opacity:1;}
+}
 .icon-btn{
   width:36px;height:36px;
   display:flex;align-items:center;justify-content:center;
@@ -202,18 +203,18 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 }
 .icon-btn:hover{background:var(--accent-quiet);color:var(--accent);}
 .export-menu{
-  position:absolute;top:calc(var(--sp-4) + 44px);right:var(--sp-4);
-  background:var(--glass-strong);
-  backdrop-filter:blur(20px) saturate(1.4);
-  -webkit-backdrop-filter:blur(20px) saturate(1.4);
+  position:fixed;
+  background:var(--bg-2);
   border:1px solid var(--hairline);
   border-radius:var(--radius-control);
   box-shadow:0 24px 48px -24px rgba(0,0,0,.55);
   padding:6px;
   min-width:200px;
-  z-index:20;
+  max-width:calc(100vw - 16px);
+  z-index:10000000;
   display:flex;flex-direction:column;gap:2px;
 }
+.export-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
 .export-menu button{
   display:flex;align-items:center;gap:10px;
   padding:8px 10px;
@@ -652,6 +653,12 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
   <button type="button" class="icon-btn" id="addChartBtn" title="Add chart" aria-label="Add chart" hidden>
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-add-chart"/></svg>
   </button>
+  <button type="button" class="icon-btn" id="exportDashboardBtn" title="Export dashboard as PNG" aria-label="Export dashboard as PNG" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dashboard"/></svg>
+  </button>
+  <button type="button" class="icon-btn" id="saveDashboardBtn" title="Save dashboard (.draw.json)" aria-label="Save dashboard file" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>
+  </button>
   <div class="filter-pills" id="filterPills" hidden></div>
   <button type="button" class="icon-btn" id="themeToggleBtn" title="Switch to light theme" aria-label="Switch to light theme">
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun"/></svg>
@@ -672,7 +679,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
       </div>
       <div class="dropzone-actions">
         <button type="button" class="btn-primary" id="fileButton">Choose a file</button>
-        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet" hidden>
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet,.json" hidden>
         <button type="button" class="link-btn" id="sampleBtn">Or try a sample dataset</button>
         <button type="button" class="link-btn" id="manualBtn">Or type a table by hand</button>
       </div>
@@ -770,6 +777,14 @@ var PALETTE = {
 };
 PALETTE.tooltipBg = hexToRgba(PALETTE.bg2, 0.92);
 
+function refreshPalette(){
+  PALETTE.ink = readCSSVar('--ink');
+  PALETTE.ink2 = readCSSVar('--ink-2');
+  PALETTE.bg2 = readCSSVar('--bg-2');
+  PALETTE.grid = readCSSVar('--grid');
+  PALETTE.tooltipBg = hexToRgba(PALETTE.bg2, 0.92);
+}
+
 function registerChartTheme(name, palette){
   echarts.registerTheme(name, {
     color: KILN_CATEGORICAL,
@@ -824,8 +839,9 @@ function currentThemeName(){
 }
 
 function registerKilnTheme(){
-  registerChartTheme('kiln', PALETTE);
+  registerChartTheme('kiln', paletteForTheme(false));
   registerChartTheme('paper', paletteForTheme(true));
+  refreshPalette();
 }
 
 var Store = (function(){
@@ -1042,6 +1058,9 @@ Data.buildColumnarStore = function(rows, fieldOrder){
     if (type === 'category' || type === 'boolean') result.levels = levelsArr[idx];
     return result;
   });
+  var columnsByName = new Map();
+  columns.forEach(function(c){ columnsByName.set(c.name, c); });
+  columns.byName = columnsByName;
   return { rowCount: rowCount, columns: columns };
 };
 
@@ -1058,7 +1077,7 @@ Data.fromCSVText = function(text, onDone){
   });
 };
 
-var CSV_WORKER_SRC = "importScripts('https://cdn.jsdelivr.net/npm/papaparse@5.7.0/papaparse.min.js');self.onmessage=function(e){Papa.parse(e.data,{header:true,skipEmptyLines:true,complete:function(res){self.postMessage({ok:true,rows:res.data,fields:res.meta.fields});},error:function(err){self.postMessage({ok:false,message:'Couldn\\u2019t read that file.'});}});};";
+var CSV_WORKER_SRC = "importScripts('https://cdn.jsdelivr.net/npm/papaparse@5.7.0/papaparse.min.js');self.onmessage=function(e){var rows=[],fields=null;Papa.parse(e.data,{header:true,skipEmptyLines:true,chunkSize:1024*1024,chunk:function(res){if(!fields)fields=res.meta.fields;rows=rows.concat(res.data);self.postMessage({progress:true});},complete:function(){self.postMessage({ok:true,rows:rows,fields:fields});},error:function(err){self.postMessage({ok:false,message:'Couldn\\u2019t read that file.'});}});};";
 
 Data.fromFileMainThread = function(file, onDone){
   Papa.parse(file, {
@@ -1080,26 +1099,32 @@ Data.fromDelimitedFile = function(file, onDone){
       var blob = new Blob([CSV_WORKER_SRC], { type: 'application/javascript' });
       var worker = new Worker(URL.createObjectURL(blob));
       var settled = false;
-      var timeoutId = setTimeout(function(){
-        if (settled) return;
-        settled = true;
-        worker.terminate();
-        Data.fromFileMainThread(file, onDone);
-      }, 10000);
+      var watchdogId = null;
+      var armWatchdog = function(){
+        clearTimeout(watchdogId);
+        watchdogId = setTimeout(function(){
+          if (settled) return;
+          settled = true;
+          worker.terminate();
+          Data.fromFileMainThread(file, onDone);
+        }, 2000);
+      };
       worker.onmessage = function(e){
         if (settled) return;
+        if (e.data && e.data.progress) { armWatchdog(); return; }
         settled = true;
-        clearTimeout(timeoutId);
+        clearTimeout(watchdogId);
         worker.terminate();
         onDone(e.data);
       };
       worker.onerror = function(){
         if (settled) return;
         settled = true;
-        clearTimeout(timeoutId);
+        clearTimeout(watchdogId);
         worker.terminate();
         Data.fromFileMainThread(file, onDone);
       };
+      armWatchdog();
       worker.postMessage(file);
       return;
     } catch (err) {
@@ -1205,6 +1230,7 @@ Data.fromFile = function(file, onDone){
 };
 
 function findColumn(columns, name){
+  if (columns.byName) return columns.byName.get(name) || null;
   for (var i=0;i<columns.length;i++){ if (columns[i].name === name) return columns[i]; }
   return null;
 }
@@ -1220,6 +1246,24 @@ function handleContentEditablePaste(e){
   e.preventDefault();
   var text = (e.clipboardData || window.clipboardData).getData('text/plain').replace(/\r\n|\r|\n/g, ' ');
   document.execCommand('insertText', false, text);
+}
+function getFocusable(container){
+  return Array.prototype.slice.call(container.querySelectorAll(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+  )).filter(function(el){ return !el.disabled && el.offsetParent !== null; });
+}
+function trapFocus(overlayEl, modalEl){
+  overlayEl.addEventListener('keydown', function(e){
+    if (e.key !== 'Tab' || overlayEl.hidden) return;
+    var focusable = getFocusable(modalEl);
+    if (!focusable.length) return;
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault(); first.focus();
+    }
+  });
 }
 
 var Spec = {};
@@ -1423,7 +1467,7 @@ Spec.applyTopN = function(rows, n, aggregation){
   } else {
     otherValue = rest.reduce(function(sum, r){ return sum + r.value; }, 0);
   }
-  top.push({ label: 'Other', value: otherValue });
+  top.push({ label: 'Other', value: otherValue, otherLabels: rest.map(function(r){ return r.label; }) });
   return top;
 };
 
@@ -1531,14 +1575,19 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
 
 var Filters = { list: [], _masks: {} };
 
-Filters.rowPasses = function(columns, rowIndex, filterList){
-  for (var i = 0; i < filterList.length; i++){
-    var f = filterList[i];
-    var col = findColumn(columns, f.field);
+Filters.rowPasses = function(rowIndex, resolvedFilters){
+  for (var i = 0; i < resolvedFilters.length; i++){
+    var rf = resolvedFilters[i];
+    var f = rf.filter, col = rf.col;
+    if (!col) continue;
     if (f.kind === 'value') {
       var levelIdx = col.values[rowIndex];
       var label = (levelIdx >= 0 && col.levels) ? col.levels[levelIdx] : null;
       if (label !== f.payload) return false;
+    } else if (f.kind === 'in') {
+      var levelIdxIn = col.values[rowIndex];
+      var labelIn = (levelIdxIn >= 0 && col.levels) ? col.levels[levelIdxIn] : null;
+      if (!rf.payloadSet.has(labelIn)) return false;
     } else {
       var v = col.values[rowIndex];
       if (isNaN(v) || v < f.payload[0] || v > f.payload[1]) return false;
@@ -1553,8 +1602,11 @@ Filters.recompute = function(columns, rowCount, panelIds){
   panelIds.forEach(function(pid){
     var relevant = Filters.list.filter(function(f){ return f.panelId !== pid; });
     if (!relevant.length) { Filters._masks[pid] = null; return; }
+    var resolved = relevant.map(function(f){
+      return { filter: f, col: findColumn(columns, f.field), payloadSet: f.kind === 'in' ? new Set(f.payload) : null };
+    });
     var mask = new Uint8Array(rowCount);
-    for (var i = 0; i < rowCount; i++) mask[i] = Filters.rowPasses(columns, i, relevant) ? 1 : 0;
+    for (var i = 0; i < rowCount; i++) mask[i] = Filters.rowPasses(i, resolved) ? 1 : 0;
     Filters._masks[pid] = mask;
   });
 };
@@ -1591,6 +1643,7 @@ Persistence.DASHBOARD_KEY = 'draw-dashboard';
 Persistence.DB_NAME = 'draw-store';
 Persistence.DB_VERSION = 1;
 Persistence.STORE_NAME = 'dataset';
+Persistence.MAX_PERSIST_ROWS = 200000;
 
 Persistence.openDB = function(){
   return new Promise(function(resolve, reject){
@@ -1607,14 +1660,15 @@ Persistence.openDB = function(){
 };
 
 Persistence.saveDataset = function(rows, fields, sourceName){
+  if (rows.length > Persistence.MAX_PERSIST_ROWS) return Promise.resolve(false);
   return Persistence.openDB().then(function(db){
     return new Promise(function(resolve, reject){
       var tx = db.transaction(Persistence.STORE_NAME, 'readwrite');
       tx.objectStore(Persistence.STORE_NAME).put({ rows: rows, fields: fields, sourceName: sourceName }, 'current');
-      tx.oncomplete = function(){ resolve(); };
+      tx.oncomplete = function(){ resolve(true); };
       tx.onerror = function(){ reject(tx.error); };
     });
-  }).catch(function(){});
+  }).catch(function(){ return false; });
 };
 
 Persistence.loadDataset = function(){
@@ -1713,7 +1767,7 @@ Render.buildOption = function(spec, columns, mask){
           color: PALETTE.ink2,
           fontSize: 11
         },
-        data: rows.map(function(r){ return r.value; })
+        data: rows.map(function(r){ return r.otherLabels ? { value: r.value, otherLabels: r.otherLabels } : r.value; })
       }],
       tooltip: { trigger: 'axis', valueFormatter: fmt }
     };
@@ -1741,7 +1795,7 @@ Render.buildOption = function(spec, columns, mask){
         itemStyle: { borderColor: PALETTE.bg2, borderWidth: 2 },
         label: showPieLabels ? { show: true, formatter: '{d}%', color: PALETTE.ink2, fontSize: 11 } : { show: false },
         labelLine: { show: showPieLabels },
-        data: pieRows.map(function(r){ return { name: r.label, value: r.value }; })
+        data: pieRows.map(function(r){ return r.otherLabels ? { name: r.label, value: r.value, otherLabels: r.otherLabels } : { name: r.label, value: r.value }; })
       }]
     };
   }
@@ -1905,10 +1959,14 @@ UI.init = function(){
   UI.els.onboardingError = document.getElementById('onboardingError');
   UI.els.panelGrid = document.getElementById('panelGrid');
   UI.els.addChartBtn = document.getElementById('addChartBtn');
+  UI.els.exportDashboardBtn = document.getElementById('exportDashboardBtn');
+  UI.els.saveDashboardBtn = document.getElementById('saveDashboardBtn');
   UI.els.filterPills = document.getElementById('filterPills');
   UI.els.themeToggleBtn = document.getElementById('themeToggleBtn');
   UI.els.themeToggleBtn.addEventListener('click', UI.toggleTheme);
   UI.els.addChartBtn.addEventListener('click', UI.addChart);
+  UI.els.exportDashboardBtn.addEventListener('click', UI.exportDashboardPNG);
+  UI.els.saveDashboardBtn.addEventListener('click', UI.exportDrawJSON);
   UI.els.inspector = document.getElementById('inspector');
   UI.els.inspectorClose = document.getElementById('inspectorClose');
   UI.els.inspectorData = document.getElementById('inspectorData');
@@ -1979,6 +2037,8 @@ UI.init = function(){
     if (e.key === 'Escape' && !UI.els.manualOverlay.hidden) UI.closeManualEntry();
     if (e.key === 'Escape' && !UI.els.sheetPickerOverlay.hidden) UI.closeSheetPicker();
   });
+  trapFocus(UI.els.manualOverlay, UI.els.manualOverlay.querySelector('.modal'));
+  trapFocus(UI.els.sheetPickerOverlay, UI.els.sheetPickerOverlay.querySelector('.modal'));
 
   UI.els.inspectorClose.addEventListener('click', UI.closeInspector);
 
@@ -2003,6 +2063,8 @@ UI.init = function(){
   });
 
   document.addEventListener('click', function(){ UI.closeAllExportMenus(); });
+  window.addEventListener('scroll', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); }, true);
+  window.addEventListener('resize', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); });
 
   window.addEventListener('resize', function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
@@ -2022,17 +2084,10 @@ UI.panelCardHtml = function(){
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"></path><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"></path></svg>' +
       '</button>' +
     '</div>' +
-    '<div class="export-menu" hidden>' +
-      '<button type="button" data-export="png2"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>PNG (2\u00d7)</button>' +
-      '<button type="button" data-export="png3"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>PNG (3\u00d7)</button>' +
-      '<label><input type="checkbox" data-export-transparent> Transparent background</label>' +
-      '<hr>' +
-      '<button type="button" data-export="copy"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy to clipboard</button>' +
-      '<button type="button" data-export="svg"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-code"/></svg>SVG</button>' +
-      '<button type="button" data-export="csv"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>CSV (this chart\u2019s data)</button>' +
-      '<hr>' +
-      '<button type="button" data-export="dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dashboard"/></svg>Whole dashboard (PNG)</button>' +
-      '<button type="button" data-export="drawjson"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Save dashboard (.draw.json)</button>' +
+    '<div class="export-menu" role="menu" aria-label="Export chart" hidden>' +
+      '<button type="button" role="menuitem" data-export="copy"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy image</button>' +
+      '<button type="button" role="menuitem" data-export="png2"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG</button>' +
+      '<button type="button" role="menuitem" data-export="csv"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Download data (CSV)</button>' +
     '</div>' +
     '<h2 class="chart-title" contenteditable="true" spellcheck="false" role="textbox" aria-label="Chart title"></h2>' +
     '<div class="chart-canvas"></div>' +
@@ -2093,43 +2148,27 @@ UI.mountPanel = function(panel){
   });
   var exportBtn = card.querySelector('[data-action="export"]');
   var exportMenu = card.querySelector('.export-menu');
+  panel._exportMenuEl = exportMenu;
+  panel._exportBtnEl = exportBtn;
   exportBtn.addEventListener('click', function(e){
     e.stopPropagation();
-    var wasOpen = !exportMenu.hidden;
+    var wasOpen = UI._openExportMenu === exportMenu;
     UI.closeAllExportMenus();
-    if (!wasOpen) {
-      exportMenu.hidden = false;
-      exportBtn.setAttribute('aria-expanded', 'true');
-    }
+    if (!wasOpen) UI.openExportMenu(exportBtn, exportMenu);
     var i = indexOfPanel(); if (i >= 0) UI.focusPanel(i);
   });
   exportMenu.addEventListener('click', function(e){ e.stopPropagation(); });
+  exportMenu.addEventListener('keydown', function(e){ UI.handleExportMenuKeydown(e, exportMenu); });
   exportMenu.querySelector('[data-export="png2"]').addEventListener('click', function(){
-    UI.exportChartPNG(panel, { scale: 2, transparent: exportMenu.querySelector('[data-export-transparent]').checked });
-    UI.closeAllExportMenus();
-  });
-  exportMenu.querySelector('[data-export="png3"]').addEventListener('click', function(){
-    UI.exportChartPNG(panel, { scale: 3, transparent: exportMenu.querySelector('[data-export-transparent]').checked });
+    UI.exportChartPNG(panel, {});
     UI.closeAllExportMenus();
   });
   exportMenu.querySelector('[data-export="copy"]').addEventListener('click', function(){
     UI.copyChartToClipboard(panel);
     UI.closeAllExportMenus();
   });
-  exportMenu.querySelector('[data-export="svg"]').addEventListener('click', function(){
-    UI.exportSVG(panel);
-    UI.closeAllExportMenus();
-  });
   exportMenu.querySelector('[data-export="csv"]').addEventListener('click', function(){
     UI.exportCSV(panel);
-    UI.closeAllExportMenus();
-  });
-  exportMenu.querySelector('[data-export="dashboard"]').addEventListener('click', function(){
-    UI.exportDashboardPNG();
-    UI.closeAllExportMenus();
-  });
-  exportMenu.querySelector('[data-export="drawjson"]').addEventListener('click', function(){
-    UI.exportDrawJSON();
     UI.closeAllExportMenus();
   });
   card.querySelector('[data-action="delete"]').addEventListener('click', function(e){
@@ -2141,9 +2180,60 @@ UI.mountPanel = function(panel){
   return card;
 };
 
-UI.closeAllExportMenus = function(){
+UI.openExportMenu = function(btn, menu){
+  document.body.appendChild(menu);
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+  UI._openExportMenu = menu;
+  UI._openExportBtn = btn;
+  var r = btn.getBoundingClientRect();
+  var m = menu.getBoundingClientRect();
+  var left = Math.max(8, Math.min(r.right - m.width, window.innerWidth - m.width - 8));
+  var top = (r.bottom + m.height + 8 > window.innerHeight) ? (r.top - m.height - 8) : (r.bottom + 8);
+  top = Math.max(8, top);
+  Object.assign(menu.style, { position: 'fixed', left: left + 'px', top: top + 'px' });
+  var first = menu.querySelector('[role="menuitem"]');
+  if (first) first.focus();
+};
+
+UI.handleExportMenuKeydown = function(e, menu){
+  var items = Array.prototype.slice.call(menu.querySelectorAll('[role="menuitem"]'));
+  var i = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    items[(i + 1 + items.length) % items.length].focus();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    items[(i - 1 + items.length) % items.length].focus();
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    items[0].focus();
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    items[items.length - 1].focus();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    UI.closeAllExportMenus({ restoreFocus: true });
+  } else if (e.key === 'Tab') {
+    UI.closeAllExportMenus();
+  }
+};
+
+UI.closeAllExportMenus = function(opts){
+  var restoreFocus = opts && opts.restoreFocus && UI._openExportBtn;
   Array.prototype.forEach.call(document.querySelectorAll('.export-menu'), function(m){ m.hidden = true; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-action="export"]'), function(b){ b.setAttribute('aria-expanded', 'false'); });
+  UI._openExportMenu = null;
+  UI._openExportBtn = null;
+  if (restoreFocus) restoreFocus.focus();
+};
+
+UI.purgeExportMenus = function(){
+  Array.prototype.forEach.call(document.querySelectorAll('.export-menu'), function(m){
+    if (m.parentNode) m.parentNode.removeChild(m);
+  });
+  UI._openExportMenu = null;
+  UI._openExportBtn = null;
 };
 
 UI.updatePanelGridLayout = function(){
@@ -2180,7 +2270,6 @@ UI.addChart = function(){
   UI.focusPanel(UI.panels.length - 1);
   UI.renderChart(UI.currentSpec, dataset.columns);
   UI.syncTitleElement();
-  UI.connectPanelCharts();
   Persistence.saveDashboard();
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
@@ -2189,6 +2278,7 @@ UI.addChart = function(){
 
 UI.toggleTheme = function(){
   var isLight = document.documentElement.classList.toggle('theme-light');
+  refreshPalette();
   var iconUse = UI.els.themeToggleBtn.querySelector('use');
   iconUse.setAttribute('href', isLight ? '#i-moon' : '#i-sun');
   var label = isLight ? 'Switch to dark theme' : 'Switch to light theme';
@@ -2207,14 +2297,7 @@ UI.toggleTheme = function(){
     }
     UI.wireChartInteractions(p);
   });
-  UI.connectPanelCharts();
   try { localStorage.setItem('draw-theme', isLight ? 'light' : 'dark'); } catch (err) {}
-};
-
-UI.connectPanelCharts = function(){
-  if (typeof echarts === 'undefined' || !echarts.connect) return;
-  var charts = UI.panels.map(function(p){ return p.chart; }).filter(Boolean);
-  if (charts.length) echarts.connect(charts);
 };
 
 UI.initPanelChart = function(panel, columns){
@@ -2226,7 +2309,13 @@ UI.initPanelChart = function(panel, columns){
   UI.wireChartInteractions(panel);
 };
 
-UI.restoreDashboardState = function(payload, sourceLabel){
+UI.setWorkspaceControlsVisible = function(visible){
+  UI.els.addChartBtn.hidden = !visible;
+  UI.els.exportDashboardBtn.hidden = !visible;
+  UI.els.saveDashboardBtn.hidden = !visible;
+};
+
+UI.restoreDashboardState = function(payload, sourceLabel, opts){
   if (!payload || !payload.rows || !payload.rows.length || !payload.fields) {
     UI.showError('That file is missing data Draw needs to restore it.');
     return false;
@@ -2236,6 +2325,7 @@ UI.restoreDashboardState = function(payload, sourceLabel){
 
   UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
+  UI.purgeExportMenus();
   UI.panels = (payload.panels || []).map(function(pd){
     return { id: pd.id, spec: pd.spec, chart: null, history: [JSON.parse(JSON.stringify(pd.spec))], historyIndex: 0, el: null };
   });
@@ -2259,12 +2349,17 @@ UI.restoreDashboardState = function(payload, sourceLabel){
 
   UI.els.onboarding.hidden = true;
   UI.els.workspace.hidden = false;
-  UI.els.addChartBtn.hidden = false;
+  UI.setWorkspaceControlsVisible(true);
   UI.clearError();
-  UI.connectPanelCharts();
   UI.refreshAllPanels();
-  Persistence.saveDataset(payload.rows, payload.fields, payload.sourceName || sourceLabel);
-  Persistence.saveDashboard();
+  if (opts && opts.skipDatasetSave) {
+    Persistence.saveDashboard();
+  } else {
+    Persistence.saveDataset(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
+      if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
+    });
+    Persistence.saveDashboard();
+  }
 
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
@@ -2285,7 +2380,7 @@ UI.restoreSession = function(){
       filters: dashboard.filters,
       activeIndex: dashboard.activeIndex,
       nextPanelId: dashboard.nextPanelId
-    }, saved.sourceName);
+    }, saved.sourceName, { skipDatasetSave: true });
     if (ok) UI.toast('Restored your last dashboard');
   });
 };
@@ -2311,8 +2406,8 @@ UI.renderFilterPills = function(){
   if (!Filters.list.length) { container.hidden = true; container.innerHTML = ''; return; }
   container.hidden = false;
   container.innerHTML = Filters.list.map(function(f, i){
-    var label = f.kind === 'value'
-      ? (titleCase(f.field) + ': ' + f.payload)
+    var label = f.kind === 'value' ? (titleCase(f.field) + ': ' + f.payload)
+      : f.kind === 'in' ? (titleCase(f.field) + ': Other (' + f.payload.length + ')')
       : (titleCase(f.field) + ': ' + Spec.formatCompact(f.payload[0]) + '\u2013' + Spec.formatCompact(f.payload[1]));
     return '<button type="button" class="filter-pill" data-filter-index="' + i + '">' + escapeHtml(label) + ' <span class="pill-x" aria-hidden="true">\u00d7</span></button>';
   }).join('') + '<button type="button" class="clear-filters-btn" id="clearAllFiltersBtn">Clear all</button>';
@@ -2332,7 +2427,9 @@ UI.wireChartInteractions = function(panel){
     var spec = panel.spec;
     if (!spec) return;
     if ((spec.type === 'bar' || spec.type === 'donut') && params.name !== undefined) {
-      Filters.add(panel.id, spec.xField, 'value', params.name);
+      var otherLabels = params.data && typeof params.data === 'object' ? params.data.otherLabels : null;
+      if (otherLabels) Filters.add(panel.id, spec.xField, 'in', otherLabels);
+      else Filters.add(panel.id, spec.xField, 'value', params.name);
       UI.refreshAllPanels();
     }
   });
@@ -2402,6 +2499,7 @@ UI.manualDefaultData = function(){
 };
 
 UI.openManualEntry = function(){
+  UI._manualOpener = document.activeElement;
   if (!UI.manualData) UI.manualData = UI.manualDefaultData();
   UI.renderManualGrid();
   UI.els.manualOverlay.hidden = false;
@@ -2412,9 +2510,12 @@ UI.openManualEntry = function(){
 };
 UI.closeManualEntry = function(){
   UI.els.manualOverlay.hidden = true;
+  if (UI._manualOpener && document.body.contains(UI._manualOpener)) UI._manualOpener.focus();
+  UI._manualOpener = null;
 };
 
 UI.openSheetPicker = function(workbook, sheetNames, fileName){
+  UI._sheetPickerOpener = document.activeElement;
   UI.els.sheetList.innerHTML = '';
   sheetNames.forEach(function(name){
     var btn = document.createElement('button');
@@ -2436,6 +2537,8 @@ UI.openSheetPicker = function(workbook, sheetNames, fileName){
 };
 UI.closeSheetPicker = function(){
   UI.els.sheetPickerOverlay.hidden = true;
+  if (UI._sheetPickerOpener && document.body.contains(UI._sheetPickerOpener)) UI._sheetPickerOpener.focus();
+  UI._sheetPickerOpener = null;
 };
 
 UI.renderManualGrid = function(){
@@ -2453,11 +2556,28 @@ UI.renderManualGrid = function(){
       });
       td.addEventListener('paste', handleContentEditablePaste);
       td.addEventListener('keydown', function(e){
-        if (e.key !== 'Tab' && e.key !== 'Enter') return;
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          var enterR = r + 1, enterC = c;
+          if (enterR >= UI.manualData.length) UI.manualAddRow();
+          var enterCells = UI.els.manualGrid.querySelectorAll('td');
+          var enterTarget = enterCells[enterR * UI.manualData[0].length + enterC];
+          if (enterTarget) { enterTarget.focus(); document.getSelection().selectAllChildren(enterTarget); }
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        var cols = UI.manualData[r].length;
+        var atLast = !e.shiftKey && r === UI.manualData.length - 1 && c === cols - 1;
+        var atFirst = e.shiftKey && r === 0 && c === 0;
+        if (atLast || atFirst) return;
         e.preventDefault();
-        var nextR = r, nextC = c + 1;
-        if (nextC >= UI.manualData[r].length) { nextR = r + 1; nextC = 0; }
-        if (nextR >= UI.manualData.length) UI.manualAddRow();
+        var nextR = r, nextC = e.shiftKey ? c - 1 : c + 1;
+        if (e.shiftKey) {
+          if (nextC < 0) { nextR = r - 1; nextC = UI.manualData[nextR].length - 1; }
+        } else if (nextC >= cols) {
+          nextR = r + 1; nextC = 0;
+          if (nextR >= UI.manualData.length) UI.manualAddRow();
+        }
         var cells = UI.els.manualGrid.querySelectorAll('td');
         var target = cells[nextR * UI.manualData[0].length + nextC];
         if (target) { target.focus(); document.getSelection().selectAllChildren(target); }
@@ -2554,6 +2674,7 @@ UI.applyRows = function(rows, fields, label, note){
 
   UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
+  UI.purgeExportMenus();
   UI.panels = [{ id: 'panel-0', spec: null, chart: null, history: [], historyIndex: -1, el: null }];
   UI._nextPanelId = 1;
   UI.activeIndex = 0;
@@ -2564,18 +2685,19 @@ UI.applyRows = function(rows, fields, label, note){
 
   UI.els.onboarding.hidden = true;
   UI.els.workspace.hidden = false;
-  UI.els.addChartBtn.hidden = false;
+  UI.setWorkspaceControlsVisible(true);
   requestAnimationFrame(function(){
     var ok = UI.commitSpec(spec);
     if (ok) {
       UI.clearError();
       if (note) UI.toast(note);
-      UI.connectPanelCharts();
-      Persistence.saveDataset(rows, fields, label);
+      Persistence.saveDataset(rows, fields, label).then(function(saved){
+        if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
+      });
     } else {
       UI.els.onboarding.hidden = false;
       UI.els.workspace.hidden = true;
-      UI.els.addChartBtn.hidden = true;
+      UI.setWorkspaceControlsVisible(false);
     }
   });
 };
@@ -2611,12 +2733,19 @@ UI.commitSpec = function(newSpec){
   var columns = Store.get().dataset ? Store.get().dataset.columns : [];
   var ok = UI.renderChart(newSpec, columns);
   if (!ok) { UI.renderInspector(); return false; }
+  var oldSpec = UI.currentSpec;
+  var panelId = UI.panels[UI.activeIndex].id;
+  var fieldChanged = oldSpec && (oldSpec.xField !== newSpec.xField || oldSpec.yField !== newSpec.yField);
   UI.currentSpec = newSpec;
   UI.history = UI.history.slice(0, UI.historyIndex + 1);
   UI.history.push(JSON.parse(JSON.stringify(newSpec)));
   if (UI.history.length > 50) UI.history.shift();
   UI.historyIndex = UI.history.length - 1;
   UI.syncTitleElement();
+  if (fieldChanged && Filters.list.some(function(f){ return f.panelId === panelId; })) {
+    Filters.list = Filters.list.filter(function(f){ return f.panelId !== panelId; });
+    UI.refreshAllPanels();
+  }
   UI.renderInspector();
   Persistence.saveDashboard();
   return true;
@@ -2674,6 +2803,7 @@ UI.deleteChart = function(){
   if (panel.chart) panel.chart.dispose();
   var card = panel.el && panel.el.closest('.chart-card');
   if (card && card.parentNode) card.parentNode.removeChild(card);
+  if (panel._exportMenuEl && panel._exportMenuEl.parentNode) panel._exportMenuEl.parentNode.removeChild(panel._exportMenuEl);
   UI.panels.splice(index, 1);
   Filters.list = Filters.list.filter(function(f){ return f.panelId !== panel.id; });
 
@@ -2688,7 +2818,7 @@ UI.deleteChart = function(){
     Persistence.clearDataset();
     UI.els.workspace.hidden = true;
     UI.els.onboarding.hidden = false;
-    UI.els.addChartBtn.hidden = true;
+    UI.setWorkspaceControlsVisible(false);
     UI.els.fileInput.value = '';
     UI.els.fileButton.focus();
     return;
@@ -2699,7 +2829,6 @@ UI.deleteChart = function(){
     c.classList.toggle('is-active', i === UI.activeIndex);
   });
   UI.updatePanelGridLayout();
-  UI.connectPanelCharts();
   if (!UI.els.inspector.hidden) UI.renderInspector();
   UI.refreshAllPanels();
   requestAnimationFrame(function(){
@@ -2727,19 +2856,18 @@ UI.exportChartPNG = function(panel, options){
 };
 
 UI.copyChartToClipboard = function(panel){
-  if (!panel.chart || !panel.el) return;
-  var canvas = panel.el.querySelector('canvas');
-  if (!canvas || !navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
+  if (!panel.chart) return;
+  if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
     UI.toast('Copy to clipboard isn\u2019t supported in this browser.');
     return;
   }
-  canvas.toBlob(function(blob){
-    if (!blob) { UI.toast('Couldn\u2019t copy the chart.'); return; }
-    navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]).then(function(){
-      UI.toast('Chart copied to clipboard');
-    }).catch(function(){
-      UI.toast('Couldn\u2019t copy the chart.');
-    });
+  var url = panel.chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
+  fetch(url).then(function(res){ return res.blob(); }).then(function(blob){
+    return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
+  }).then(function(){
+    UI.toast('Chart copied to clipboard');
+  }).catch(function(){
+    UI.toast('Couldn\u2019t copy the chart.');
   });
 };
 
