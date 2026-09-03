@@ -218,9 +218,6 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 }
 .export-menu:not([hidden]){display:flex;}
 .export-menu button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;}
-.export-menu-more{flex-direction:column;gap:2px;margin-top:2px;padding-top:4px;border-top:1px solid var(--hairline);}
-.export-menu-more:not([hidden]){display:flex;}
-.export-menu [data-export="more"][aria-expanded="true"]{color:var(--accent);}
 .export-menu button{
   display:flex;align-items:center;gap:10px;
   padding:8px 10px;
@@ -577,12 +574,6 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
     <symbol id="i-code" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 7.5 4.5 12 9 16.5M15 7.5 19.5 12 15 16.5"/>
-    </symbol>
-
-    <symbol id="i-more" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <circle cx="5.5" cy="12" r="1.7"/>
-      <circle cx="12" cy="12" r="1.7"/>
-      <circle cx="18.5" cy="12" r="1.7"/>
     </symbol>
 
     <symbol id="i-dashboard" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1388,7 +1379,8 @@ Spec.buildCategoryNumeric = function(catCol, numCol){
     aggregation: agg,
     currency: Spec.isCurrency(numCol.name),
     showLabels: false,
-    sortMode: Spec.defaultSortMode(catCol)
+    sortMode: Spec.defaultSortMode(catCol),
+    topN: isDonut ? 8 : 12
   };
   spec.title = Spec.regenerateTitle(spec);
   return spec;
@@ -1401,7 +1393,7 @@ Spec.buildScatter = function(colA, colB){
 };
 
 Spec.buildCategoryCount = function(catCol){
-  var spec = { type: 'bar', xField: catCol.name, yField: null, aggregation: 'count', showLabels: false, sortMode: Spec.defaultSortMode(catCol) };
+  var spec = { type: 'bar', xField: catCol.name, yField: null, aggregation: 'count', showLabels: false, sortMode: Spec.defaultSortMode(catCol), topN: 12 };
   spec.title = Spec.regenerateTitle(spec);
   return spec;
 };
@@ -1524,7 +1516,41 @@ Spec.applyTopN = function(rows, n, aggregation){
   return top;
 };
 
-Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation, mask, seriesFieldName){
+Spec.reorderByMode = function(labels, valuesByLabel, sortMode, firstSeenOrder){
+  var hasOther = labels.indexOf('Other') >= 0;
+  var base = hasOther ? labels.filter(function(l){ return l !== 'Other'; }) : labels.slice();
+  if (sortMode === 'value-asc') {
+    base.sort(function(a,b){ return (valuesByLabel[a]||0) - (valuesByLabel[b]||0); });
+  } else if (sortMode === 'label') {
+    base.sort(function(a,b){ return String(a).localeCompare(String(b)); });
+  } else if (sortMode === 'first-seen' && firstSeenOrder && firstSeenOrder.length) {
+    var seenIdx = new Map();
+    firstSeenOrder.forEach(function(l, i){ if (!seenIdx.has(l)) seenIdx.set(l, i); });
+    base.sort(function(a,b){
+      var ia = seenIdx.has(a) ? seenIdx.get(a) : Infinity;
+      var ib = seenIdx.has(b) ? seenIdx.get(b) : Infinity;
+      return ia - ib;
+    });
+  }
+  return hasOther ? base.concat(['Other']) : base;
+};
+
+Spec.categoryRows = function(columns, catFieldName, numFieldName, aggregation, mask, topN, sortMode){
+  var grouped = Spec.groupByCategory(columns, catFieldName, numFieldName, aggregation, mask);
+  var firstSeen = grouped.firstSeen;
+  var rows = Spec.applyTopN(grouped, topN, aggregation);
+  if (sortMode && sortMode !== 'value-desc') {
+    var valuesByLabel = {};
+    rows.forEach(function(r){ valuesByLabel[r.label] = r.value; });
+    var orderedLabels = Spec.reorderByMode(rows.map(function(r){ return r.label; }), valuesByLabel, sortMode, firstSeen);
+    var byLabel = {};
+    rows.forEach(function(r){ byLabel[r.label] = r; });
+    rows = orderedLabels.map(function(l){ return byLabel[l]; });
+  }
+  return rows;
+};
+
+Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation, mask, seriesFieldName, catTopN){
   var catCol = findColumn(columns, catFieldName);
   var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
   var n = catCol.values.length;
@@ -1574,7 +1600,6 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
     if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
     var vv = isNaN(v2) ? 0 : v2;
     var key = catLabel + '\u0000' + serLabel;
-    if (!cellSum.has(key)) {}
     if (!catTotal.has(catLabel)) catFirstSeen.push(catLabel);
     cellSum.set(key, (cellSum.get(key) || 0) + vv);
     cellCount.set(key, (cellCount.get(key) || 0) + 1);
@@ -1584,7 +1609,7 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
 
   var catNames = Array.from(catTotal.keys()).sort(function(a,b){ return catTotal.get(b) - catTotal.get(a); });
   var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
-  var catCap = collapseTopN(catNames, 12);
+  var catCap = collapseTopN(catNames, catTopN || 12);
   var serCap = collapseTopN(serNames, 6);
 
   function cellValue(rawCats, rawSers){
@@ -1617,7 +1642,8 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
   return {
     labels: finalCatNames,
     series: seriesOut,
-    otherLabels: catCap.hasOther ? catCap.rest : null
+    otherLabels: catCap.hasOther ? catCap.rest : null,
+    catFirstSeen: catFirstSeen
   };
 };
 
@@ -1641,12 +1667,14 @@ function quarterKey(ms){
   return d.getUTCFullYear() + '-Q' + q;
 }
 
-Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask, seriesFieldName){
+Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask, seriesFieldName, grain){
   var dateCol = findColumn(columns, dateFieldName);
   var numCol = numFieldName ? findColumn(columns, numFieldName) : null;
   var n = dateCol.values.length;
 
-  if (!dateCol._bucketKeys) {
+  var keyFnByGrain = { day: dayKey, week: weekKey, month: monthKey, quarter: quarterKey };
+
+  if (!dateCol._autoGrain) {
     var minT = Infinity, maxT = -Infinity;
     var dayKeySet = new Set();
     for (var i=0;i<n;i++){
@@ -1659,21 +1687,25 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
     }
     var spanDays = (maxT - minT) / 86400000;
     var isDaily = dayKeySet.size >= spanDays * 0.8;
-    var keyFn;
-    if (spanDays <= 60) keyFn = dayKey;
-    else if (spanDays < 200 && isDaily) keyFn = weekKey;
-    else if (spanDays <= 400) keyFn = monthKey;
-    else keyFn = quarterKey;
+    if (spanDays <= 60) dateCol._autoGrain = 'day';
+    else if (spanDays < 200 && isDaily) dateCol._autoGrain = 'week';
+    else if (spanDays <= 400) dateCol._autoGrain = 'month';
+    else dateCol._autoGrain = 'quarter';
+  }
 
+  var effectiveGrain = (grain && keyFnByGrain[grain]) ? grain : dateCol._autoGrain;
+  dateCol._bucketKeysByGrain = dateCol._bucketKeysByGrain || {};
+  if (!dateCol._bucketKeysByGrain[effectiveGrain]) {
+    var keyFn = keyFnByGrain[effectiveGrain];
     var precomputed = new Array(n);
     for (var k=0;k<n;k++){
       var tk = dateCol.values[k];
       precomputed[k] = isNaN(tk) ? null : keyFn(tk);
     }
-    dateCol._bucketKeys = precomputed;
+    dateCol._bucketKeysByGrain[effectiveGrain] = precomputed;
   }
 
-  var bucketKeys = dateCol._bucketKeys;
+  var bucketKeys = dateCol._bucketKeysByGrain[effectiveGrain];
 
   if (!seriesFieldName) {
     var sums = new Map(); var counts = new Map();
@@ -1901,7 +1933,7 @@ Render.buildOption = function(spec, columns, mask){
   if (spec.type === 'line' || spec.type === 'area') {
     var showPoints = spec.showPoints !== false;
     if (spec.seriesField) {
-      var tsMulti = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField);
+      var tsMulti = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField, spec.grain);
       return {
         grid: { left: 16, right: 24, top: 24, bottom: 56, containLabel: true },
         xAxis: { type: 'category', data: tsMulti.labels },
@@ -1921,7 +1953,7 @@ Render.buildOption = function(spec, columns, mask){
         tooltip: { trigger: 'axis', valueFormatter: fmt }
       };
     }
-    var tsRows = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask);
+    var tsRows = Spec.groupByDate(columns, spec.xField, spec.yField, spec.aggregation, mask, null, spec.grain);
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
       xAxis: { type: 'category', data: tsRows.map(function(r){ return r.label; }) },
@@ -1941,7 +1973,20 @@ Render.buildOption = function(spec, columns, mask){
   if (spec.type === 'bar') {
     var showLabels = !!spec.showLabels;
     if (spec.seriesField) {
-      var barMulti = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField);
+      var barMulti = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.seriesField, spec.topN || 12);
+      if (spec.sortMode && spec.sortMode !== 'value-desc') {
+        var catTotals = {};
+        barMulti.labels.forEach(function(l, i){
+          catTotals[l] = barMulti.series.reduce(function(sum, s){ return sum + (s.data[i] || 0); }, 0);
+        });
+        var newOrder = Spec.reorderByMode(barMulti.labels, catTotals, spec.sortMode, barMulti.catFirstSeen);
+        var idxMap = newOrder.map(function(l){ return barMulti.labels.indexOf(l); });
+        barMulti = {
+          labels: newOrder,
+          series: barMulti.series.map(function(s){ return { name: s.name, data: idxMap.map(function(i){ return s.data[i]; }) }; }),
+          otherLabels: barMulti.otherLabels
+        };
+      }
       var horizontalMulti = barMulti.labels.length > 8;
       var lastIdx = barMulti.labels.length - 1;
       var optionMulti = {
@@ -1975,8 +2020,7 @@ Render.buildOption = function(spec, columns, mask){
       }
       return optionMulti;
     }
-    var rows = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask);
-    rows = Spec.applyTopN(rows, 12, spec.aggregation);
+    var rows = Spec.categoryRows(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.topN || 12, spec.sortMode);
     var horizontal = rows.length > 8;
     var option = {
       grid: { left: 16, right: 24, top: 24, bottom: 24, containLabel: true },
@@ -2006,8 +2050,7 @@ Render.buildOption = function(spec, columns, mask){
   }
 
   if (spec.type === 'donut') {
-    var pieRows = Spec.groupByCategory(columns, spec.xField, spec.yField, spec.aggregation, mask);
-    pieRows = Spec.applyTopN(pieRows, 8, spec.aggregation);
+    var pieRows = Spec.categoryRows(columns, spec.xField, spec.yField, spec.aggregation, mask, spec.topN || 8, spec.sortMode);
     var showPieLabels = !!spec.showLabels;
     return {
       tooltip: { trigger: 'item', valueFormatter: fmt },
@@ -2130,6 +2173,16 @@ function aggRow(selected){
   var aggs = [['sum','Sum'],['avg','Average'],['count','Count']];
   var opts = aggs.map(function(a){ return '<option value="' + a[0] + '"' + (a[0] === selected ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('');
   return '<div class="field-row"><label>Aggregation</label><select data-role="aggregation">' + opts + '</select></div>';
+}
+function sortRow(selected){
+  var modes = [['value-desc','Value (high to low)'],['value-asc','Value (low to high)'],['label','Label'],['first-seen','First seen']];
+  var opts = modes.map(function(m){ return '<option value="' + m[0] + '"' + (m[0] === (selected || 'value-desc') ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('');
+  return '<div class="field-row"><label>Sort</label><select data-role="sortMode">' + opts + '</select></div>';
+}
+function grainRow(selected){
+  var grains = [['','Auto'],['day','Day'],['week','Week'],['month','Month'],['quarter','Quarter']];
+  var opts = grains.map(function(g){ return '<option value="' + g[0] + '"' + (g[0] === (selected || '') ? ' selected' : '') + '>' + g[1] + '</option>'; }).join('');
+  return '<div class="field-row"><label>Granularity</label><select data-role="grain">' + opts + '</select></div>';
 }
 function toggleRow(label, role, checked){
   return '<div class="toggle-row"><label>' + escapeHtml(label) + '</label><input type="checkbox" data-role="' + role + '"' + (checked ? ' checked' : '') + '></div>';
@@ -2315,13 +2368,10 @@ UI.panelCardHtml = function(){
     '<div class="export-menu" role="menu" aria-label="Export chart" hidden>' +
       '<button type="button" role="menuitem" data-export="copy"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy image</button>' +
       '<button type="button" role="menuitem" data-export="png2"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG</button>' +
+      '<button type="button" role="menuitem" data-export="png3"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (3\u00d7)</button>' +
+      '<button type="button" role="menuitem" data-export="png-transparent"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (transparent)</button>' +
+      '<button type="button" role="menuitem" data-export="svg"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-code"/></svg>Download SVG</button>' +
       '<button type="button" role="menuitem" data-export="csv"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Download data (CSV)</button>' +
-      '<button type="button" role="menuitem" data-export="more" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-more"/></svg>More\u2026</button>' +
-      '<div class="export-menu-more" hidden>' +
-        '<button type="button" role="menuitem" data-export="png3"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (3\u00d7)</button>' +
-        '<button type="button" role="menuitem" data-export="png-transparent"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Download PNG (transparent)</button>' +
-        '<button type="button" role="menuitem" data-export="svg"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-code"/></svg>Download SVG</button>' +
-      '</div>' +
     '</div>' +
     '<h2 class="chart-title" contenteditable="true" spellcheck="false" role="textbox" aria-label="Chart title"></h2>' +
     '<div class="chart-canvas"></div>' +
@@ -2397,22 +2447,6 @@ UI.mountPanel = function(panel){
     UI.exportChartPNG(panel, {});
     UI.closeAllExportMenus();
   });
-  exportMenu.querySelector('[data-export="copy"]').addEventListener('click', function(){
-    UI.copyChartToClipboard(panel);
-    UI.closeAllExportMenus();
-  });
-  exportMenu.querySelector('[data-export="csv"]').addEventListener('click', function(){
-    UI.exportCSV(panel);
-    UI.closeAllExportMenus();
-  });
-  var moreBtn = exportMenu.querySelector('[data-export="more"]');
-  var moreSection = exportMenu.querySelector('.export-menu-more');
-  moreBtn.addEventListener('click', function(){
-    var expanding = moreSection.hidden;
-    moreSection.hidden = !expanding;
-    moreBtn.setAttribute('aria-expanded', String(expanding));
-    UI.repositionExportMenu(exportBtn, exportMenu);
-  });
   exportMenu.querySelector('[data-export="png3"]').addEventListener('click', function(){
     UI.exportChartPNG(panel, { scale: 3 });
     UI.closeAllExportMenus();
@@ -2423,6 +2457,14 @@ UI.mountPanel = function(panel){
   });
   exportMenu.querySelector('[data-export="svg"]').addEventListener('click', function(){
     UI.exportSVG(panel);
+    UI.closeAllExportMenus();
+  });
+  exportMenu.querySelector('[data-export="copy"]').addEventListener('click', function(){
+    UI.copyChartToClipboard(panel);
+    UI.closeAllExportMenus();
+  });
+  exportMenu.querySelector('[data-export="csv"]').addEventListener('click', function(){
+    UI.exportCSV(panel);
     UI.closeAllExportMenus();
   });
   card.querySelector('[data-action="delete"]').addEventListener('click', function(e){
@@ -2481,8 +2523,6 @@ UI.closeAllExportMenus = function(opts){
   var restoreFocus = opts && opts.restoreFocus && UI._openExportBtn;
   Array.prototype.forEach.call(document.querySelectorAll('.export-menu'), function(m){ m.hidden = true; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-action="export"]'), function(b){ b.setAttribute('aria-expanded', 'false'); });
-  Array.prototype.forEach.call(document.querySelectorAll('.export-menu-more'), function(s){ s.hidden = true; });
-  Array.prototype.forEach.call(document.querySelectorAll('[data-export="more"]'), function(b){ b.setAttribute('aria-expanded', 'false'); });
   UI._openExportMenu = null;
   UI._openExportBtn = null;
   if (restoreFocus) restoreFocus.focus();
@@ -3279,11 +3319,14 @@ UI.renderInspector = function(){
     fieldsHtml += fieldRow('Date field', 'xField', dateCols, spec.xField);
     fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
+    fieldsHtml += grainRow(spec.grain);
     fieldsHtml += fieldRowWithNone('Split by', 'seriesField', catCols, spec.seriesField);
   } else if (spec.type === 'bar' || spec.type === 'donut') {
     fieldsHtml += fieldRow('Category field', 'xField', catCols, spec.xField);
     fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
+    fieldsHtml += sortRow(spec.sortMode);
+    fieldsHtml += rangeRow('Top categories', 'topN', spec.topN || (spec.type === 'donut' ? 8 : 12), 3, 20);
     if (spec.type === 'bar') {
       var splitCols = catCols.filter(function(c){ return c.name !== spec.xField; });
       fieldsHtml += fieldRowWithNone('Split by', 'seriesField', splitCols, spec.seriesField);
@@ -3337,7 +3380,9 @@ UI.updateSpecField = function(role, value){
     if (!spec.yField) spec.aggregation = 'count';
   } else if (role === 'seriesField') {
     spec.seriesField = value === '' ? null : value;
-  } else if (role === 'pointSize' || role === 'buckets') {
+  } else if (role === 'grain') {
+    spec.grain = value === '' ? null : value;
+  } else if (role === 'pointSize' || role === 'buckets' || role === 'topN') {
     spec[role] = parseInt(value, 10);
   } else {
     spec[role] = value;
@@ -3346,6 +3391,10 @@ UI.updateSpecField = function(role, value){
     spec.currency = Spec.isCurrency(spec.yField);
   }
   if (role === 'xField' && spec.seriesField === spec.xField) spec.seriesField = null;
+  if (role === 'xField' && (spec.type === 'bar' || spec.type === 'donut')) {
+    var col = findColumn(Store.get().dataset.columns, spec.xField);
+    if (col) spec.sortMode = Spec.defaultSortMode(col);
+  }
   if (!spec.titleCustom) spec.title = Spec.regenerateTitle(spec);
   UI.commitSpec(spec);
 };
