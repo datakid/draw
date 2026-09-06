@@ -4023,7 +4023,9 @@ document.addEventListener('DOMContentLoaded', function(){
   UI.init();
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('draw-theme'); } catch (err) {}
-  if (savedTheme === 'light') {
+  var systemPrefersLight = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
+  var wantsLight = savedTheme === 'light' || (savedTheme === null && systemPrefersLight);
+  if (wantsLight) {
     document.documentElement.classList.add('theme-light');
     UI.els.themeToggleBtn.querySelector('use').setAttribute('href', '#i-moon');
     UI.els.themeToggleBtn.setAttribute('title', 'Switch to dark theme');
