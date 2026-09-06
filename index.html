@@ -741,7 +741,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-drop"/></svg>
       </div>
       <h1>Drop a file to see it as a chart</h1>
-      <p>CSV, TSV, XLSX, and Parquet all work here. You can also paste a table straight from your clipboard.</p>
+      <p>CSV, TSV, XLSX, Parquet, and JSON all work here. You can also paste a table straight from your clipboard.</p>
       <div class="busy-row" id="dropzoneBusy" hidden>
         <svg class="busy-mark" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mark-busy"/></svg>
         <span id="dropzoneBusyText"></span>
@@ -932,7 +932,8 @@ var Store = (function(){
   return { get: get, set: set, subscribe: subscribe };
 })();
 
-var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/;
+var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i;
+var ISO_YEAR_MONTH_RE = /^\d{4}-\d{2}$/;
 var SLASH_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
 
 function cleanNumericString(v){
@@ -962,7 +963,7 @@ function looksDate(v){
   if (v instanceof Date) return !isNaN(v.getTime());
   if (typeof v === 'number' || typeof v === 'bigint') return false;
   var s = String(v).trim();
-  return ISO_DATE_RE.test(s) || SLASH_DATE_RE.test(s);
+  return ISO_DATE_RE.test(s) || ISO_YEAR_MONTH_RE.test(s) || SLASH_DATE_RE.test(s);
 }
 function parseDateValue(v, dateOrder){
   if (v instanceof Date) {
@@ -971,13 +972,20 @@ function parseDateValue(v, dateOrder){
   }
   var s = String(v).trim();
   if (ISO_DATE_RE.test(s)) {
+    var hasTime = /[ T]/.test(s);
+    var hasTZ = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
     var t1 = Date.parse(s.replace(' ', 'T'));
     if (isNaN(t1)) return null;
-    if (/[ T]/.test(s)) {
+    if (hasTime) {
       var dLocal = new Date(t1);
+      if (hasTZ) return Date.UTC(dLocal.getUTCFullYear(), dLocal.getUTCMonth(), dLocal.getUTCDate());
       return Date.UTC(dLocal.getFullYear(), dLocal.getMonth(), dLocal.getDate());
     }
     return t1;
+  }
+  if (ISO_YEAR_MONTH_RE.test(s)) {
+    var ymParts = s.split('-');
+    return Date.UTC(parseInt(ymParts[0], 10), parseInt(ymParts[1], 10) - 1, 1);
   }
   if (SLASH_DATE_RE.test(s)) {
     var parts = s.split('/');
@@ -1156,7 +1164,7 @@ Data.buildColumnarStore = function(rows, fieldOrder){
       values: encodedArr[idx]
     };
     if (type === 'category' || type === 'boolean') result.levels = levelsArr[idx];
-    if (type === 'number') { result.unit = colType[idx].unit; result.coercionFailures = coercionFailCounts[idx]; }
+    if (type === 'number') { result.unit = colType[idx].unit; result.coercionFailures = coercionFailCounts[idx]; result.allInt = numColAllInt[idx]; }
     return result;
   });
   var columnsByName = new Map();
@@ -1372,6 +1380,23 @@ Data.fromParquetFile = function(file, onDone){
   });
 };
 
+Data.fromJSONFile = function(file, onDone){
+  var reader = new FileReader();
+  reader.onload = function(){
+    var parsed;
+    try { parsed = JSON.parse(reader.result); }
+    catch (err) { onDone({ ok: false, message: 'That JSON file isn\u2019t valid JSON.' }); return; }
+    var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.rows) ? parsed.rows : null);
+    if (!rows || !rows.length || typeof rows[0] !== 'object' || rows[0] === null || Array.isArray(rows[0])) {
+      onDone({ ok: false, message: 'Draw expects a JSON file that\u2019s an array of row objects.' });
+      return;
+    }
+    onDone({ ok: true, rows: rows, fields: Object.keys(rows[0]) });
+  };
+  reader.onerror = function(){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); };
+  reader.readAsText(file);
+};
+
 Data.fromFile = function(file, onDone){
   var ext = (file.name.split('.').pop() || '').toLowerCase();
   if (ext === 'csv' || ext === 'tsv' || ext === 'txt') {
@@ -1380,8 +1405,10 @@ Data.fromFile = function(file, onDone){
     Data.fromXLSXFile(file, onDone);
   } else if (ext === 'parquet') {
     Data.fromParquetFile(file, onDone);
+  } else if (ext === 'json') {
+    Data.fromJSONFile(file, onDone);
   } else {
-    onDone({ ok: false, message: file.name + ' isn\u2019t supported yet. Draw reads CSV, TSV, XLSX, and Parquet.' });
+    onDone({ ok: false, message: file.name + ' isn\u2019t supported yet. Draw reads CSV, TSV, XLSX, Parquet, and JSON.' });
   }
 };
 
@@ -1389,6 +1416,18 @@ function findColumn(columns, name){
   if (columns.byName) return columns.byName.get(name) || null;
   for (var i=0;i<columns.length;i++){ if (columns[i].name === name) return columns[i]; }
   return null;
+}
+function isNumericCategoryEligible(col){
+  return col.type === 'number' && !col.idLike && col.allInt && col.uniqueCount <= 24;
+}
+function catRawLabel(col, i){
+  if (col.type === 'number') {
+    var v = col.values[i];
+    return isNaN(v) ? null : String(v);
+  }
+  var idx = col.values[i];
+  if (idx < 0 || !col.levels) return null;
+  return col.levels[idx];
 }
 function collapseTopN(namesByTotalDesc, n){
   var top = namesByTotalDesc.slice(0, n);
@@ -1495,6 +1534,11 @@ var CURRENCY_NAME_RE = /price|cost|revenue|amount|sales|spend|budget|income|fee/
 Spec.pickAggregation = function(columnName){ return AVG_NAME_RE.test(columnName) ? 'avg' : 'sum'; };
 Spec.isCurrency = function(columnName){ return CURRENCY_NAME_RE.test(columnName); };
 Spec.usableColumns = function(columns){ return columns.filter(function(c){ return !c.idLike; }); };
+Spec.usableColumnsOrAll = function(columns){
+  var usable = Spec.usableColumns(columns);
+  return (!usable.length && columns.length) ? columns : usable;
+};
+Spec.categoricalColumns = function(usable){ return usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean' || isNumericCategoryEligible(c); }); };
 
 function columnAllPositive(col){
   for (var i=0;i<col.values.length;i++){
@@ -1553,6 +1597,7 @@ Spec.buildTimeSeriesCount = function(dateCol){
 };
 
 Spec.defaultSortMode = function(catCol){
+  if (catCol.type === 'number') return 'label';
   return looksOrdinal(catCol.levels) ? 'first-seen' : 'value-desc';
 };
 
@@ -1593,10 +1638,10 @@ Spec.buildHistogram = function(numCol){
 };
 
 Spec.candidates = function(columns){
-  var usable = Spec.usableColumns(columns);
+  var usable = Spec.usableColumnsOrAll(columns);
   var numeric = usable.filter(function(c){ return c.type === 'number'; });
   var dates = usable.filter(function(c){ return c.type === 'date'; });
-  var categories = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+  var categories = Spec.categoricalColumns(usable);
   var lowCat = categories.filter(function(c){ return c.uniqueCount <= 8; });
 
   function penalty(cols){
@@ -1623,33 +1668,41 @@ Spec.candidates = function(columns){
     });
   }
 
-  if (lowCat.length && numeric.length && columnAllPositive(numeric[0])) {
-    var donutCat = lowCat[0], donutNum = numeric[0];
-    candidates.push({
-      spec: Spec.buildCategoryNumeric(donutCat, donutNum),
-      score: 85 - penalty([donutCat, donutNum]),
-      reason: 'low-cardinality category (\u2264 8) + all-positive numeric \u2192 donut'
-    });
+  if (lowCat.length) {
+    var donutCat = lowCat[0];
+    var donutNumPool = numeric.filter(function(c){ return c.name !== donutCat.name; });
+    if (donutNumPool.length && columnAllPositive(donutNumPool[0])) {
+      var donutNum = donutNumPool[0];
+      candidates.push({
+        spec: Spec.buildCategoryNumeric(donutCat, donutNum),
+        score: 85 - penalty([donutCat, donutNum]),
+        reason: 'low-cardinality category (\u2264 8) + all-positive numeric \u2192 donut'
+      });
+    }
   }
 
-  if (categories.length && numeric.length) {
-    var barCat = categories[0], barNum = numeric[0];
-    var agg = Spec.pickAggregation(barNum.name);
-    var barSpec = {
-      type: 'bar',
-      xField: barCat.name,
-      yField: barNum.name,
-      aggregation: agg,
-      currency: Spec.isCurrency(barNum.name),
-      showLabels: false,
-      sortMode: Spec.defaultSortMode(barCat)
-    };
-    barSpec.title = Spec.regenerateTitle(barSpec);
-    candidates.push({
-      spec: barSpec,
-      score: 80 - penalty([barCat, barNum]),
-      reason: 'category + numeric \u2192 horizontal bar'
-    });
+  if (categories.length) {
+    var barCat = categories[0];
+    var barNumPool = numeric.filter(function(c){ return c.name !== barCat.name; });
+    var barNum = barNumPool[0];
+    if (barNum) {
+      var agg = Spec.pickAggregation(barNum.name);
+      var barSpec = {
+        type: 'bar',
+        xField: barCat.name,
+        yField: barNum.name,
+        aggregation: agg,
+        currency: Spec.isCurrency(barNum.name),
+        showLabels: false,
+        sortMode: Spec.defaultSortMode(barCat)
+      };
+      barSpec.title = Spec.regenerateTitle(barSpec);
+      candidates.push({
+        spec: barSpec,
+        score: 80 - penalty([barCat, barNum]),
+        reason: 'category + numeric \u2192 horizontal bar'
+      });
+    }
   }
 
   if (numeric.length >= 2) {
@@ -1749,9 +1802,8 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
     var firstSeen = [];
     for (var i=0;i<n;i++){
       if (mask && !mask[i]) continue;
-      var idx = catCol.values[i];
-      if (idx < 0) continue;
-      var label = catCol.levels[idx];
+      var label = catRawLabel(catCol, i);
+      if (label === null) continue;
       var v = numCol ? numCol.values[i] : 1;
       if (numCol && aggregation !== 'count' && isNaN(v)) continue;
       if (!sums.has(label)) firstSeen.push(label);
@@ -1778,12 +1830,10 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
   var catFirstSeen = [];
   for (var j=0;j<n;j++){
     if (mask && !mask[j]) continue;
-    var cIdx = catCol.values[j];
-    if (cIdx < 0) continue;
-    var sIdx = seriesCol.values[j];
-    if (sIdx < 0 || !seriesCol.levels) continue;
-    var catLabel = catCol.levels[cIdx];
-    var serLabel = seriesCol.levels[sIdx];
+    var catLabel = catRawLabel(catCol, j);
+    if (catLabel === null) continue;
+    var serLabel = catRawLabel(seriesCol, j);
+    if (serLabel === null) continue;
     var v2 = numCol ? numCol.values[j] : 1;
     if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
     var vv = isNaN(v2) ? 0 : v2;
@@ -1854,6 +1904,18 @@ function quarterKey(ms){
   var q = Math.floor(d.getUTCMonth() / 3) + 1;
   return d.getUTCFullYear() + '-Q' + q;
 }
+function allBucketKeysInRange(minT, maxT, keyFn){
+  var keys = [];
+  var seen = new Set();
+  var DAY_MS = 86400000;
+  for (var t = minT; t <= maxT; t += DAY_MS) {
+    var k = keyFn(t);
+    if (!seen.has(k)) { seen.add(k); keys.push(k); }
+  }
+  var lastKey = keyFn(maxT);
+  if (!seen.has(lastKey)) keys.push(lastKey);
+  return keys;
+}
 
 Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, mask, seriesFieldName, grain){
   var dateCol = findColumn(columns, dateFieldName);
@@ -1897,6 +1959,7 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
 
   if (!seriesFieldName) {
     var sums = new Map(); var counts = new Map();
+    var visibleMinT = Infinity, visibleMaxT = -Infinity;
     for (var j=0;j<n;j++){
       if (mask && !mask[j]) continue;
       var key = bucketKeys[j];
@@ -1905,11 +1968,15 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
       if (numCol && isNaN(v)) continue;
       sums.set(key, (sums.get(key) || 0) + v);
       counts.set(key, (counts.get(key) || 0) + 1);
+      var tj = dateCol.values[j];
+      if (tj < visibleMinT) visibleMinT = tj;
+      if (tj > visibleMaxT) visibleMaxT = tj;
     }
-    var keys = Array.from(sums.keys()).sort();
+    var keys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain]) : [];
     return keys.map(function(k){
       var value;
-      if (aggregation === 'avg') value = sums.get(k) / counts.get(k);
+      if (!sums.has(k)) value = (aggregation === 'avg') ? null : 0;
+      else if (aggregation === 'avg') value = sums.get(k) / counts.get(k);
       else if (aggregation === 'count') value = counts.get(k);
       else value = sums.get(k);
       return { label: k, value: value };
@@ -1919,14 +1986,16 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
   var seriesCol = findColumn(columns, seriesFieldName);
   var cellSum = new Map(), cellCount = new Map();
   var serTotal = new Map();
-  var allKeysSet = new Set();
+  var visibleMinT = Infinity, visibleMaxT = -Infinity;
   for (var m=0;m<n;m++){
     if (mask && !mask[m]) continue;
     var dk = bucketKeys[m];
     if (dk === null) continue;
-    var sIdx = seriesCol.values[m];
-    if (sIdx < 0 || !seriesCol.levels) continue;
-    var serLabel = seriesCol.levels[sIdx];
+    var tm = dateCol.values[m];
+    if (tm < visibleMinT) visibleMinT = tm;
+    if (tm > visibleMaxT) visibleMaxT = tm;
+    var serLabel = catRawLabel(seriesCol, m);
+    if (serLabel === null) continue;
     var v2 = numCol ? numCol.values[m] : 1;
     if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
     var vv = isNaN(v2) ? 0 : v2;
@@ -1934,10 +2003,9 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
     cellSum.set(cellKey, (cellSum.get(cellKey) || 0) + vv);
     cellCount.set(cellKey, (cellCount.get(cellKey) || 0) + 1);
     serTotal.set(serLabel, (serTotal.get(serLabel) || 0) + vv);
-    allKeysSet.add(dk);
   }
 
-  var dateKeys = Array.from(allKeysSet).sort();
+  var dateKeys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain]) : [];
   var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
   var serCap = collapseTopN(serNames, 6);
   var finalSerNames = serCap.top.concat(serCap.hasOther ? ['Other'] : []);
@@ -1948,7 +2016,7 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
       var k = dateKey + '\u0000' + rawSers[b];
       if (cellSum.has(k)) { sum += cellSum.get(k); count += cellCount.get(k); }
     }
-    if (aggregation === 'avg') return count ? sum / count : 0;
+    if (aggregation === 'avg') return count ? sum / count : null;
     if (aggregation === 'count') return count;
     return sum;
   }
@@ -1969,12 +2037,10 @@ Filters.rowPasses = function(rowIndex, resolvedFilters){
     var f = rf.filter, col = rf.col;
     if (!col) continue;
     if (f.kind === 'value') {
-      var levelIdx = col.values[rowIndex];
-      var label = (levelIdx >= 0 && col.levels) ? col.levels[levelIdx] : null;
+      var label = catRawLabel(col, rowIndex);
       if (label !== f.payload) return false;
     } else if (f.kind === 'in') {
-      var levelIdxIn = col.values[rowIndex];
-      var labelIn = (levelIdxIn >= 0 && col.levels) ? col.levels[levelIdxIn] : null;
+      var labelIn = catRawLabel(col, rowIndex);
       if (!rf.payloadSet.has(labelIn)) return false;
     } else {
       var v = col.values[rowIndex];
@@ -2122,6 +2188,24 @@ function histogramBucketLabel(lo, hi, width, unit){
   var loStr = decimals ? lo.toFixed(decimals) : String(Math.round(lo));
   var hiStr = decimals ? hi.toFixed(decimals) : String(Math.round(hi));
   return prefix + loStr + suffix + '\u2013' + prefix + hiStr + suffix;
+}
+
+function histogramStats(columns, spec){
+  var col = findColumn(columns, spec.xField);
+  var srcVals = col.values;
+  var vLen = srcVals.length;
+  var min = Infinity, max = -Infinity, validCount = 0;
+  for (var vi = 0; vi < vLen; vi++) {
+    var v0 = srcVals[vi];
+    if (isNaN(v0)) continue;
+    if (v0 < min) min = v0;
+    if (v0 > max) max = v0;
+    validCount++;
+  }
+  if (!validCount) return null;
+  var buckets = (max === min) ? 1 : (spec.buckets || 16);
+  var width = (max - min) / buckets || 1;
+  return { min: min, max: max, buckets: buckets, width: width, unit: col.unit };
 }
 
 Render.buildOption = function(spec, columns, mask, selection){
@@ -2317,7 +2401,7 @@ Render.buildOption = function(spec, columns, mask, selection){
         formatter: function(params){
           var xv = isDateX ? dayKey(params.value[0]) : Spec.formatExact(params.value[0], xUnit);
           var yv = Spec.formatExact(params.value[1], unit);
-          return xLabel + ': ' + xv + '<br>' + yLabel + ': ' + yv;
+          return escapeHtml(xLabel) + ': ' + escapeHtml(xv) + '<br>' + escapeHtml(yLabel) + ': ' + escapeHtml(yv);
         }
       }
     };
@@ -2325,19 +2409,11 @@ Render.buildOption = function(spec, columns, mask, selection){
 
   if (spec.type === 'histogram') {
     var col = findColumn(columns, spec.xField);
+    var stats = histogramStats(columns, spec);
+    if (!stats) return { series: [] };
+    var min = stats.min, max = stats.max, buckets = stats.buckets, width = stats.width;
     var srcVals = col.values;
     var vLen = srcVals.length;
-    var min = Infinity, max = -Infinity, validCount = 0;
-    for (var vi = 0; vi < vLen; vi++) {
-      var v0 = srcVals[vi];
-      if (isNaN(v0)) continue;
-      if (v0 < min) min = v0;
-      if (v0 > max) max = v0;
-      validCount++;
-    }
-    if (!validCount) return { series: [] };
-    var buckets = (max === min) ? 1 : (spec.buckets || 16);
-    var width = (max - min) / buckets || 1;
     var counts = new Array(buckets).fill(0);
     for (var vj = 0; vj < vLen; vj++) {
       if (mask && !mask[vj]) continue;
@@ -2361,9 +2437,14 @@ Render.buildOption = function(spec, columns, mask, selection){
   return null;
 };
 
-function optionHasData(option){
+function optionHasData(option, spec){
   if (!option || !option.series || !option.series.length) return false;
-  return option.series.some(function(s){ return s.data && s.data.length > 0; });
+  var has = option.series.some(function(s){ return s.data && s.data.length > 0; });
+  if (has && spec && spec.type === 'histogram') {
+    var sum = option.series[0].data.reduce(function(a, b){ return a + (isNaN(b) ? 0 : b); }, 0);
+    return sum > 0;
+  }
+  return has;
 }
 
 function chartAriaSummary(spec, option){
@@ -2662,8 +2743,12 @@ UI.init = function(){
   window.addEventListener('scroll', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); }, true);
   window.addEventListener('resize', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); });
 
+  var resizeDebounceId = null;
   window.addEventListener('resize', function(){
-    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+    clearTimeout(resizeDebounceId);
+    resizeDebounceId = setTimeout(function(){
+      UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+    }, 120);
   });
 };
 
@@ -2919,7 +3004,7 @@ UI.toggleTheme = function(){
       var mask = Filters.maskFor(p.id);
       var option = Render.buildOption(p.spec, dataset.columns, mask, Filters.ownFilter(p.id));
       p.chart.setOption(option, true);
-      UI.setPanelEmptyState(p, !optionHasData(option));
+      UI.setPanelEmptyState(p, !optionHasData(option, p.spec));
       UI.setPanelDataNote(p, p.spec, dataset.columns);
       p.el.setAttribute('aria-label', chartAriaSummary(p.spec, option));
     }
@@ -2965,7 +3050,7 @@ UI.initPanelChart = function(panel, columns){
   var option = Render.buildOption(panel.spec, columns, mask, Filters.ownFilter(panel.id));
   panel.chart = echarts.init(panel.el, currentThemeName(), { renderer: 'canvas' });
   panel.chart.setOption(option, true);
-  UI.setPanelEmptyState(panel, !optionHasData(option));
+  UI.setPanelEmptyState(panel, !optionHasData(option, panel.spec));
   UI.setPanelDataNote(panel, panel.spec, columns);
   panel.el.setAttribute('aria-label', chartAriaSummary(panel.spec, option));
   UI.wireChartInteractions(panel);
@@ -2999,7 +3084,7 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
     UI.panels = [{ id: 'panel-0', spec: spec, chart: null, el: null }];
   }
   UI._nextPanelId = payload.nextPanelId || UI.panels.length;
-  Filters.list = payload.filters || [];
+  Filters.list = payload.filters ? JSON.parse(JSON.stringify(payload.filters)) : [];
 
   UI.panels.forEach(function(p){
     UI.mountPanel(p);
@@ -3059,7 +3144,7 @@ UI.refreshAllPanels = function(){
     var mask = Filters.maskFor(p.id);
     var option = Render.buildOption(p.spec, dataset.columns, mask, Filters.ownFilter(p.id));
     p.chart.setOption(option, true);
-    UI.setPanelEmptyState(p, !optionHasData(option));
+    UI.setPanelEmptyState(p, !optionHasData(option, p.spec));
     UI.setPanelDataNote(p, p.spec, dataset.columns);
     p.el.setAttribute('aria-label', chartAriaSummary(p.spec, option));
   });
@@ -3073,8 +3158,12 @@ UI.renderFilterPills = function(){
   if (!Filters.list.length) { container.hidden = true; container.innerHTML = ''; return; }
   container.hidden = false;
   container.innerHTML = Filters.list.map(function(f, i){
+    var dataset = Store.get().dataset;
+    var col = dataset ? findColumn(dataset.columns, f.field) : null;
+    var isDateRange = f.kind !== 'value' && f.kind !== 'in' && col && col.type === 'date';
     var label = f.kind === 'value' ? (titleCase(f.field) + ': ' + f.payload)
       : f.kind === 'in' ? (titleCase(f.field) + ': Other (' + f.payload.length + ')')
+      : isDateRange ? (titleCase(f.field) + ': ' + dayKey(f.payload[0]) + '\u2013' + dayKey(f.payload[1]))
       : (titleCase(f.field) + ': ' + Spec.formatCompact(f.payload[0]) + '\u2013' + Spec.formatCompact(f.payload[1]));
     return '<button type="button" class="filter-pill" data-filter-index="' + i + '">' + escapeHtml(label) + ' <span class="pill-x" aria-hidden="true">\u00d7</span></button>';
   }).join('') + '<button type="button" class="clear-filters-btn" id="clearAllFiltersBtn">Clear all</button>';
@@ -3101,6 +3190,16 @@ UI.wireChartInteractions = function(panel){
       else Filters.add(panel.id, spec.xField, 'value', params.name);
       UI.refreshAllPanels();
       UI.pushCommand();
+    } else if (spec.type === 'histogram' && params.dataIndex !== undefined) {
+      var dataset = Store.get().dataset;
+      var stats = dataset ? histogramStats(dataset.columns, spec) : null;
+      if (stats) {
+        var lo = stats.min + params.dataIndex * stats.width;
+        var hi = (params.dataIndex === stats.buckets - 1) ? stats.max : stats.min + (params.dataIndex + 1) * stats.width;
+        Filters.add(panel.id, spec.xField, 'range', [lo, hi]);
+        UI.refreshAllPanels();
+        UI.pushCommand();
+      }
     }
   });
   panel.chart.on('datazoom', function(evt){
@@ -3409,18 +3508,16 @@ UI.renderChart = function(spec, columns){
     var activePanel = UI.panels[UI.activeIndex];
     var mask = Filters.maskFor(activePanel.id);
     var option = Render.buildOption(spec, columns, mask, Filters.ownFilter(activePanel.id));
-    if (!optionHasData(option)) {
-      var msg = 'There isn\u2019t enough usable data for that chart.';
-      if (UI.chart) UI.toast(msg); else UI.showError(msg);
-      return false;
-    }
+    var hasData = optionHasData(option, spec);
     var isNewChart = !UI.chart;
     if (!UI.chart) UI.chart = echarts.init(activePanel.el, currentThemeName(), { renderer: 'canvas' });
     UI.chart.setOption(option, true);
     UI.chart.resize();
+    UI.setPanelEmptyState(activePanel, !hasData);
     UI.setPanelDataNote(activePanel, spec, columns);
     activePanel.el.setAttribute('aria-label', chartAriaSummary(spec, option));
     if (isNewChart) UI.wireChartInteractions(activePanel);
+    if (!hasData) UI.toast('There isn\u2019t enough usable data for that chart right now.');
     return true;
   } catch (err) {
     var errMsg = 'Something went wrong building that chart. Try a different file or field.';
@@ -3458,7 +3555,12 @@ UI.syncTitleElement = function(){
 UI.openInspector = function(){
   UI.els.inspector.hidden = false;
   UI.renderInspector();
-  requestAnimationFrame(function(){ UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); }); });
+  requestAnimationFrame(function(){
+    UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
+    if (window.innerWidth <= 900 && typeof UI.els.inspector.scrollIntoView === 'function') {
+      UI.els.inspector.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
 };
 UI.closeInspector = function(){
   UI.els.inspector.hidden = true;
@@ -3484,6 +3586,10 @@ UI.deleteChart = function(){
     UI.pushCommand();
     UI.els.fileInput.value = '';
     UI.els.fileButton.focus();
+    UI.toast('Chart deleted \u2014 dashboard cleared', {
+      label: 'Undo',
+      onClick: function(){ if (UI.undo()) UI.toast('Restored previous dashboard'); }
+    });
     return;
   }
 
@@ -3530,12 +3636,59 @@ function dashboardFilename(ext){
   return (source ? source + '-dashboard' : 'draw-dashboard') + '.' + ext;
 }
 
+function pxFromPercent(val, base){
+  if (typeof val === 'string' && /%$/.test(val)) return (parseFloat(val) / 100) * base;
+  if (typeof val === 'number') return val;
+  return base / 2;
+}
+
+function buildExportOption(panel, baseW, baseH){
+  var opt = panel.chart.getOption();
+  var titleText = panel.spec && panel.spec.title;
+  var titleHeight = 0;
+  if (titleText) {
+    titleHeight = 46;
+    opt.title = { text: titleText, left: 'center', top: 14, textStyle: { fontSize: 18, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, color: PALETTE.ink } };
+    if (opt.grid) {
+      var grids = Array.isArray(opt.grid) ? opt.grid : [opt.grid];
+      grids.forEach(function(g){ g.top = (typeof g.top === 'number' ? g.top : 24) + titleHeight; });
+    }
+    if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
+      var s = opt.series[0];
+      var origCenter = s.center || ['50%', '50%'];
+      var cx = pxFromPercent(origCenter[0], baseW);
+      var cy = titleHeight + pxFromPercent(origCenter[1], baseH);
+      s.center = [cx, cy];
+      var origRadius = Array.isArray(s.radius) ? s.radius : [0, s.radius || '75%'];
+      var baseMin = Math.min(baseW, baseH);
+      s.radius = origRadius.map(function(r){ return pxFromPercent(r, baseMin / 2); });
+    }
+  }
+  return { option: opt, titleHeight: titleHeight };
+}
+
+function renderPanelPNGDataURL(panel, options){
+  if (!panel.chart || typeof echarts === 'undefined') return null;
+  options = options || {};
+  var baseW = (panel.el && panel.el.clientWidth) || 800;
+  var baseH = (panel.el && panel.el.clientHeight) || 500;
+  var built = buildExportOption(panel, baseW, baseH);
+  var offscreen = document.createElement('div');
+  offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
+  document.body.appendChild(offscreen);
+  var offChart = echarts.init(offscreen, currentThemeName(), { renderer: 'canvas' });
+  offChart.setOption(built.option);
+  var url = offChart.getDataURL({ type: 'png', pixelRatio: options.scale || 2, backgroundColor: options.transparent ? 'transparent' : PALETTE.bg2 });
+  offChart.dispose();
+  document.body.removeChild(offscreen);
+  return url;
+}
+
 UI.exportChartPNG = function(panel, options){
   if (!panel.chart) return;
   options = options || {};
-  var scale = options.scale || 2;
-  var transparent = !!options.transparent;
-  var url = panel.chart.getDataURL({ type: 'png', pixelRatio: scale, backgroundColor: transparent ? 'transparent' : PALETTE.bg2 });
+  var url = renderPanelPNGDataURL(panel, options);
+  if (!url) return;
   triggerDownload(url, panelFilename(panel, 'png'));
   UI.toast('Chart downloaded');
 };
@@ -3546,7 +3699,7 @@ UI.copyChartToClipboard = function(panel){
     UI.toast('Copy to clipboard isn\u2019t supported in this browser.');
     return;
   }
-  var url = panel.chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
+  var url = renderPanelPNGDataURL(panel, { scale: 2 });
   fetch(url).then(function(res){ return res.blob(); }).then(function(blob){
     return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
   }).then(function(){
@@ -3558,11 +3711,13 @@ UI.copyChartToClipboard = function(panel){
 
 UI.exportSVG = function(panel){
   if (!panel.chart || typeof echarts === 'undefined') return;
+  var baseW = 800, baseH = 500;
+  var built = buildExportOption(panel, baseW, baseH);
   var offscreen = document.createElement('div');
-  offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:800px;height:500px;';
+  offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
   document.body.appendChild(offscreen);
   var svgChart = echarts.init(offscreen, currentThemeName(), { renderer: 'svg' });
-  svgChart.setOption(panel.chart.getOption());
+  svgChart.setOption(built.option);
   var svgStr = typeof svgChart.renderToSVGString === 'function' ? svgChart.renderToSVGString() : null;
   svgChart.dispose();
   document.body.removeChild(offscreen);
@@ -3573,6 +3728,22 @@ UI.exportSVG = function(panel){
   URL.revokeObjectURL(url);
   UI.toast('SVG downloaded');
 };
+
+function csvRowsForCategorySeries(labels, series){
+  if (series.length > 1) {
+    var headerCols = series.map(function(s){ return s.name || 'Series'; });
+    var lines = ['label,' + headerCols.map(function(h){ return '"' + String(h).replace(/"/g,'""') + '"'; }).join(',')];
+    for (var i=0;i<labels.length;i++){
+      var rowVals = series.map(function(s){ return s.data[i]; });
+      lines.push('"' + String(labels[i]).replace(/"/g,'""') + '",' + rowVals.join(','));
+    }
+    return lines;
+  }
+  var lines2 = ['label,value'];
+  var values = series[0].data;
+  for (var j=0;j<labels.length;j++) lines2.push('"' + String(labels[j]).replace(/"/g,'""') + '",' + values[j]);
+  return lines2;
+}
 
 UI.exportCSV = function(panel){
   if (!panel.chart || !panel.spec) return;
@@ -3587,13 +3758,9 @@ UI.exportCSV = function(panel){
     lines = [titleCase(panel.spec.xField) + ',' + titleCase(panel.spec.yField)];
     opt.series[0].data.forEach(function(p){ lines.push(p[0] + ',' + p[1]); });
   } else if (opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') {
-    lines = ['label,value'];
-    var xLabels = opt.xAxis[0].data, xValues = opt.series[0].data;
-    for (var i=0;i<xLabels.length;i++) lines.push('"' + String(xLabels[i]).replace(/"/g,'""') + '",' + xValues[i]);
+    lines = csvRowsForCategorySeries(opt.xAxis[0].data, opt.series);
   } else if (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category') {
-    lines = ['label,value'];
-    var yLabels = opt.yAxis[0].data, yValues = opt.series[0].data;
-    for (var j=0;j<yLabels.length;j++) lines.push('"' + String(yLabels[j]).replace(/"/g,'""') + '",' + yValues[j]);
+    lines = csvRowsForCategorySeries(opt.yAxis[0].data, opt.series);
   } else {
     UI.toast('CSV export isn\u2019t available for this chart type.');
     return;
@@ -3629,23 +3796,38 @@ UI.exportDashboardPNG = function(){
   var chartedPanels = UI.panels.filter(function(p){ return p.chart; });
   if (!chartedPanels.length) return;
   var urls = chartedPanels.map(function(p){
-    return p.chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
+    return renderPanelPNGDataURL(p, { scale: 2 });
   });
   var images = new Array(urls.length);
   var loaded = 0;
+  var failed = 0;
   urls.forEach(function(url, i){
+    if (!url) { images[i] = null; loaded++; failed++; if (loaded === urls.length) finish(); return; }
     var img = new Image();
     img.onload = function(){
       images[i] = img;
       loaded++;
-      if (loaded === urls.length) composite();
+      if (loaded === urls.length) finish();
+    };
+    img.onerror = function(){
+      images[i] = null;
+      loaded++;
+      failed++;
+      if (loaded === urls.length) finish();
     };
     img.src = url;
   });
 
-  function composite(){
-    var cols = chartedPanels.length > 1 ? 2 : 1;
-    var rows = Math.ceil(chartedPanels.length / cols);
+  function finish(){
+    var ok = images.filter(Boolean);
+    if (!ok.length) { UI.toast('Couldn\u2019t export the dashboard.'); return; }
+    composite(ok);
+    UI.toast(failed ? ((failed === 1 ? 'One chart' : failed + ' charts') + ' couldn\u2019t be exported; the rest are in the image.') : 'Dashboard downloaded');
+  }
+
+  function composite(imagesToUse){
+    var cols = imagesToUse.length > 1 ? 2 : 1;
+    var rows = Math.ceil(imagesToUse.length / cols);
     var cellW = 800, cellH = 500;
     var canvas = document.createElement('canvas');
     canvas.width = cellW * cols;
@@ -3653,12 +3835,11 @@ UI.exportDashboardPNG = function(){
     var ctx = canvas.getContext('2d');
     ctx.fillStyle = PALETTE.bg2;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    images.forEach(function(img, i){
+    imagesToUse.forEach(function(img, i){
       var col = i % cols, row = Math.floor(i / cols);
       ctx.drawImage(img, col*cellW, row*cellH, cellW, cellH);
     });
     triggerDownload(canvas.toDataURL('image/png'), dashboardFilename('png'));
-    UI.toast('Dashboard downloaded');
   }
 };
 
@@ -3666,10 +3847,10 @@ UI.renderInspector = function(){
   if (!UI.currentSpec || !Store.get().dataset) return;
   var columns = Store.get().dataset.columns;
   var spec = UI.currentSpec;
-  var usable = Spec.usableColumns(columns);
+  var usable = Spec.usableColumnsOrAll(columns);
   var dateCols = usable.filter(function(c){ return c.type === 'date'; });
   var numCols = usable.filter(function(c){ return c.type === 'number'; });
-  var catCols = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+  var catCols = Spec.categoricalColumns(usable);
 
   var recommendedType = (function(){
     var top = Spec.candidates(columns)[0];
@@ -3798,11 +3979,11 @@ UI.updateSpecField = function(role, value){
 
 UI.changeChartType = function(newType){
   var columns = Store.get().dataset.columns;
-  var usable = Spec.usableColumns(columns);
+  var usable = Spec.usableColumnsOrAll(columns);
   var old = UI.currentSpec;
   var dateCols = usable.filter(function(c){ return c.type === 'date'; });
   var numCols = usable.filter(function(c){ return c.type === 'number'; });
-  var catCols = usable.filter(function(c){ return c.type === 'category' || c.type === 'boolean'; });
+  var catCols = Spec.categoricalColumns(usable);
 
   function pick(cols, preferredName){
     var found = preferredName ? cols.filter(function(c){ return c.name === preferredName; })[0] : null;
