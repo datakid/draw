@@ -2,6 +2,36 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script>
+(function(){
+  window.__drawPendingDrop = null;
+  window.__drawPendingPasteText = null;
+  function onDragOver(e){ e.preventDefault(); }
+  function onDrop(e){
+    e.preventDefault();
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) window.__drawPendingDrop = file;
+  }
+  function onPaste(e){
+    var active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    var cd = e.clipboardData || window.clipboardData;
+    var text = cd && cd.getData ? cd.getData('text') : '';
+    if (text) {
+      e.preventDefault();
+      window.__drawPendingPasteText = text;
+    }
+  }
+  window.addEventListener('dragover', onDragOver, false);
+  window.addEventListener('drop', onDrop, false);
+  window.addEventListener('paste', onPaste, false);
+  window.__drawUnbindPreboot = function(){
+    window.removeEventListener('dragover', onDragOver, false);
+    window.removeEventListener('drop', onDrop, false);
+    window.removeEventListener('paste', onPaste, false);
+  };
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='%2316131A'/%3E%3Cg%20transform='translate(4%204)'%20fill='none'%20stroke='%23F4EFE9'%20stroke-width='2.6'%20stroke-linecap='round'%3E%3Cpath%20d='M3.3%2018.4%203.9%2014.4'/%3E%3Cpath%20d='M8.3%2018.4%209.4%2011.6'/%3E%3Cpath%20d='M13.3%2018.4%2014.8%208.8'/%3E%3C/g%3E%3Ccircle%20cx='24.2'%20cy='10'%20r='1.9'%20fill='%23E07A55'/%3E%3C/svg%3E">
@@ -118,6 +148,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .onboarding{
   display:none;
   min-height:calc(100vh - 64px);
+  min-height:calc(100dvh - 64px);
   flex-direction:column;align-items:center;justify-content:center;
   gap:var(--sp-4);
   text-align:center;
@@ -149,6 +180,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
   transition:background .15s var(--ease);
 }
 .btn-primary:hover{background:var(--accent-hover);}
+.btn-primary:disabled{opacity:.5;cursor:default;pointer-events:none;}
 
 .link-btn{
   background:none;border:none;
@@ -747,7 +779,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
         <span id="dropzoneBusyText"></span>
       </div>
       <div class="dropzone-actions">
-        <button type="button" class="btn-primary" id="fileButton">Choose a file</button>
+        <button type="button" class="btn-primary" id="fileButton" disabled>Choose a file</button>
         <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet,.json" hidden>
         <button type="button" class="link-btn" id="sampleBtn">Or try a sample dataset</button>
         <button type="button" class="link-btn" id="manualBtn">Or type a table by hand</button>
@@ -816,7 +848,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
   </section>
 </main>
 
-<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="drop-overlay" id="dropOverlay" hidden aria-hidden="true">
   <div class="drop-overlay-inner">
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-drop"/></svg>
@@ -2662,6 +2694,7 @@ UI.init = function(){
   UI.els.fileButton.addEventListener('click', function(){
     UI.els.fileInput.click();
   });
+  UI.els.fileButton.disabled = false;
 
   var dragDepth = 0;
   document.addEventListener('dragenter', function(e){
@@ -2750,6 +2783,8 @@ UI.init = function(){
       UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
     }, 120);
   });
+
+  if (window.__drawUnbindPreboot) window.__drawUnbindPreboot();
 };
 
 UI.panelCardHtml = function(){
@@ -3118,8 +3153,8 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
 
 UI.restoreSession = function(){
   var dashboard = Persistence.loadDashboard();
-  if (!dashboard) return;
-  Persistence.loadDataset().then(function(saved){
+  if (!dashboard) return Promise.resolve();
+  return Persistence.loadDataset().then(function(saved){
     if (!saved || !saved.rows || !saved.rows.length) return;
     var ok = UI.restoreDashboardState({
       rows: saved.rows,
@@ -3238,7 +3273,6 @@ UI.clearError = function(){
   UI.els.onboardingError.textContent = '';
 };
 UI.toast = function(message, action){
-  UI.els.toast.hidden = false;
   UI.els.toast.innerHTML = '';
   var inner = document.createElement('div');
   inner.className = 'toast-inner';
@@ -4019,6 +4053,18 @@ UI.changeChartType = function(newType){
   UI.commitSpec(newSpec);
 };
 
+function drainPendingBoot(){
+  if (window.__drawPendingDrop) {
+    var pendingFile = window.__drawPendingDrop;
+    window.__drawPendingDrop = null;
+    UI.loadFile(pendingFile);
+  } else if (window.__drawPendingPasteText) {
+    var pendingText = window.__drawPendingPasteText;
+    window.__drawPendingPasteText = null;
+    if (looksLikePastedTable(pendingText)) UI.loadCSVText(pendingText, 'Pasted table');
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function(){
   UI.init();
   var savedTheme = null;
@@ -4036,7 +4082,7 @@ document.addEventListener('DOMContentLoaded', function(){
     return;
   }
   registerKilnTheme();
-  UI.restoreSession();
+  UI.restoreSession().then(drainPendingBoot);
 });
 </script>
 </body>
