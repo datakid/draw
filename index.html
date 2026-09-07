@@ -103,7 +103,7 @@ button{font-family:inherit;}
 ::selection{background:var(--accent-quiet);color:var(--ink);}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
-.grain{position:fixed;inset:0;pointer-events:none;opacity:.025;mix-blend-mode:normal;z-index:9999;}
+.grain{position:fixed;inset:0;pointer-events:none;opacity:.025;mix-blend-mode:normal;z-index:9999;background-image:url(data:image/png;base64,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);background-repeat:repeat;}
 body.is-chart-interacting .grain{display:none;}
 
 .topbar{
@@ -308,6 +308,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
   padding:var(--sp-5);
   position:sticky;top:88px;
   max-height:calc(100vh - 112px);
+  max-height:calc(100dvh - 112px);
   overflow-y:auto;
 }
 .inspector-header{
@@ -730,15 +731,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
 
   </defs>
 </svg>
-<div class="grain" aria-hidden="true">
-  <svg width="100%" height="100%">
-    <filter id="grainFilter">
-      <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"></feTurbulence>
-      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0"></feColorMatrix>
-    </filter>
-    <rect width="100%" height="100%" filter="url(#grainFilter)"></rect>
-  </svg>
-</div>
+<div class="grain" aria-hidden="true"></div>
 
 <header class="topbar">
   <button type="button" class="lockup" id="lockup" aria-label="Draw — start a new dashboard">
@@ -3591,7 +3584,8 @@ UI.openInspector = function(){
   UI.renderInspector();
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
-    if (window.innerWidth <= 900 && typeof UI.els.inspector.scrollIntoView === 'function') {
+    var rect = UI.els.inspector.getBoundingClientRect();
+    if ((rect.top < 0 || rect.top > window.innerHeight) && typeof UI.els.inspector.scrollIntoView === 'function') {
       UI.els.inspector.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   });
@@ -3676,64 +3670,68 @@ function pxFromPercent(val, base){
   return base / 2;
 }
 
-function buildExportOption(panel, baseW, baseH){
-  var opt = panel.chart.getOption();
-  var titleText = panel.spec && panel.spec.title;
-  var titleHeight = 0;
-  if (titleText) {
-    titleHeight = 46;
-    opt.title = { text: titleText, left: 'center', top: 14, textStyle: { fontSize: 18, fontFamily: 'DM Sans, sans-serif', fontWeight: 600, color: PALETTE.ink } };
-    if (opt.grid) {
-      var grids = Array.isArray(opt.grid) ? opt.grid : [opt.grid];
-      grids.forEach(function(g){ g.top = (typeof g.top === 'number' ? g.top : 24) + titleHeight; });
-    }
-    if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
-      var s = opt.series[0];
-      var origCenter = s.center || ['50%', '50%'];
-      var cx = pxFromPercent(origCenter[0], baseW);
-      var cy = titleHeight + pxFromPercent(origCenter[1], baseH);
-      s.center = [cx, cy];
-      var origRadius = Array.isArray(s.radius) ? s.radius : [0, s.radius || '75%'];
-      var baseMin = Math.min(baseW, baseH);
-      s.radius = origRadius.map(function(r){ return pxFromPercent(r, baseMin / 2); });
-    }
+function chartOptionWithTitle(option, titleText, baseW, baseH){
+  var titleHeight = 40;
+  var out = Object.assign({}, option);
+  out.title = { text: titleText || 'Untitled chart', left: 16, top: 10, textStyle: { fontFamily: "'Instrument Serif', Georgia, 'Times New Roman', serif", fontStyle: 'italic', fontWeight: 400, fontSize: 20, color: PALETTE.ink } };
+  if (out.grid) {
+    var wasArray = Array.isArray(out.grid);
+    var grids = (wasArray ? out.grid : [out.grid]).map(function(g){
+      var g2 = Object.assign({}, g);
+      g2.top = (typeof g.top === 'number' ? g.top : 24) + titleHeight;
+      return g2;
+    });
+    out.grid = wasArray ? grids : grids[0];
   }
-  return { option: opt, titleHeight: titleHeight };
+  if (Array.isArray(out.series) && out.series[0] && out.series[0].type === 'pie') {
+    out.series = out.series.slice();
+    var s = Object.assign({}, out.series[0]);
+    var origCenter = s.center || ['50%', '50%'];
+    var cx = pxFromPercent(origCenter[0], baseW);
+    var cy = titleHeight + pxFromPercent(origCenter[1], baseH);
+    s.center = [cx, cy];
+    var origRadius = Array.isArray(s.radius) ? s.radius : [0, s.radius || '75%'];
+    var baseMin = Math.min(baseW, baseH);
+    s.radius = origRadius.map(function(r){ return pxFromPercent(r, baseMin / 2); });
+    out.series[0] = s;
+  }
+  return { option: out, titleHeight: titleHeight };
 }
 
-function renderPanelPNGDataURL(panel, options){
+function renderPanelDataURL(panel, baseW, baseH, dataURLOptions){
   if (!panel.chart || typeof echarts === 'undefined') return null;
-  options = options || {};
-  var baseW = (panel.el && panel.el.clientWidth) || 800;
-  var baseH = (panel.el && panel.el.clientHeight) || 500;
-  var built = buildExportOption(panel, baseW, baseH);
+  var built = chartOptionWithTitle(panel.chart.getOption(), panel.spec && panel.spec.title, baseW, baseH);
   var offscreen = document.createElement('div');
   offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
   document.body.appendChild(offscreen);
   var offChart = echarts.init(offscreen, currentThemeName(), { renderer: 'canvas' });
   offChart.setOption(built.option);
-  var url = offChart.getDataURL({ type: 'png', pixelRatio: options.scale || 2, backgroundColor: options.transparent ? 'transparent' : PALETTE.bg2 });
+  var url = offChart.getDataURL(dataURLOptions);
   offChart.dispose();
   document.body.removeChild(offscreen);
   return url;
 }
 
 UI.exportChartPNG = function(panel, options){
-  if (!panel.chart) return;
+  if (!panel.chart || typeof echarts === 'undefined') return;
   options = options || {};
-  var url = renderPanelPNGDataURL(panel, options);
+  var baseW = (panel.el && panel.el.clientWidth) || 800;
+  var baseH = (panel.el && panel.el.clientHeight) || 500;
+  var url = renderPanelDataURL(panel, baseW, baseH, { type: 'png', pixelRatio: options.scale || 2, backgroundColor: options.transparent ? 'transparent' : PALETTE.bg2 });
   if (!url) return;
   triggerDownload(url, panelFilename(panel, 'png'));
   UI.toast('Chart downloaded');
 };
 
 UI.copyChartToClipboard = function(panel){
-  if (!panel.chart) return;
+  if (!panel.chart || typeof echarts === 'undefined') return;
   if (!navigator.clipboard || typeof window.ClipboardItem === 'undefined') {
     UI.toast('Copy to clipboard isn\u2019t supported in this browser.');
     return;
   }
-  var url = renderPanelPNGDataURL(panel, { scale: 2 });
+  var baseW = (panel.el && panel.el.clientWidth) || 800;
+  var baseH = (panel.el && panel.el.clientHeight) || 500;
+  var url = renderPanelDataURL(panel, baseW, baseH, { type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
   fetch(url).then(function(res){ return res.blob(); }).then(function(blob){
     return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
   }).then(function(){
@@ -3746,7 +3744,7 @@ UI.copyChartToClipboard = function(panel){
 UI.exportSVG = function(panel){
   if (!panel.chart || typeof echarts === 'undefined') return;
   var baseW = 800, baseH = 500;
-  var built = buildExportOption(panel, baseW, baseH);
+  var built = chartOptionWithTitle(panel.chart.getOption(), panel.spec && panel.spec.title, baseW, baseH);
   var offscreen = document.createElement('div');
   offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
   document.body.appendChild(offscreen);
@@ -3763,38 +3761,36 @@ UI.exportSVG = function(panel){
   UI.toast('SVG downloaded');
 };
 
-function csvRowsForCategorySeries(labels, series){
-  if (series.length > 1) {
-    var headerCols = series.map(function(s){ return s.name || 'Series'; });
-    var lines = ['label,' + headerCols.map(function(h){ return '"' + String(h).replace(/"/g,'""') + '"'; }).join(',')];
-    for (var i=0;i<labels.length;i++){
-      var rowVals = series.map(function(s){ return s.data[i]; });
-      lines.push('"' + String(labels[i]).replace(/"/g,'""') + '",' + rowVals.join(','));
-    }
-    return lines;
-  }
-  var lines2 = ['label,value'];
-  var values = series[0].data;
-  for (var j=0;j<labels.length;j++) lines2.push('"' + String(labels[j]).replace(/"/g,'""') + '",' + values[j]);
-  return lines2;
-}
-
 UI.exportCSV = function(panel){
   if (!panel.chart || !panel.spec) return;
   var opt = panel.chart.getOption();
   var lines;
+  function seriesValue(v){ return (v && typeof v === 'object') ? v.value : v; }
+  function csvField(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
   if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
     lines = ['label,value'];
     opt.series[0].data.forEach(function(d){
-      lines.push('"' + String(d.name).replace(/"/g,'""') + '",' + d.value);
+      lines.push(csvField(d.name) + ',' + seriesValue(d));
     });
   } else if (opt.series && opt.series[0] && opt.series[0].type === 'scatter') {
     lines = [titleCase(panel.spec.xField) + ',' + titleCase(panel.spec.yField)];
     opt.series[0].data.forEach(function(p){ lines.push(p[0] + ',' + p[1]); });
-  } else if (opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') {
-    lines = csvRowsForCategorySeries(opt.xAxis[0].data, opt.series);
-  } else if (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category') {
-    lines = csvRowsForCategorySeries(opt.yAxis[0].data, opt.series);
+  } else if ((opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') || (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category')) {
+    var axisIsX = !!(opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category');
+    var catLabels = axisIsX ? opt.xAxis[0].data : opt.yAxis[0].data;
+    var seriesList = opt.series || [];
+    if (seriesList.length > 1) {
+      lines = ['label,' + seriesList.map(function(s){ return csvField(s.name || 'value'); }).join(',')];
+      for (var k=0;k<catLabels.length;k++){
+        var row = [csvField(catLabels[k])];
+        for (var si=0;si<seriesList.length;si++) row.push(seriesValue(seriesList[si].data[k]));
+        lines.push(row.join(','));
+      }
+    } else {
+      lines = ['label,value'];
+      var soloData = seriesList[0] ? seriesList[0].data : [];
+      for (var i=0;i<catLabels.length;i++) lines.push(csvField(catLabels[i]) + ',' + seriesValue(soloData[i]));
+    }
   } else {
     UI.toast('CSV export isn\u2019t available for this chart type.');
     return;
@@ -3827,53 +3823,52 @@ UI.exportDrawJSON = function(){
 };
 
 UI.exportDashboardPNG = function(){
+  if (typeof echarts === 'undefined') return;
   var chartedPanels = UI.panels.filter(function(p){ return p.chart; });
   if (!chartedPanels.length) return;
+  var cellW = 800, cellH = 500;
   var urls = chartedPanels.map(function(p){
-    return renderPanelPNGDataURL(p, { scale: 2 });
+    return renderPanelDataURL(p, cellW, cellH, { type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
   });
   var images = new Array(urls.length);
-  var loaded = 0;
-  var failed = 0;
+  var failed = new Array(urls.length);
+  var settled = 0;
   urls.forEach(function(url, i){
-    if (!url) { images[i] = null; loaded++; failed++; if (loaded === urls.length) finish(); return; }
+    if (!url) { failed[i] = true; settled++; if (settled === urls.length) composite(); return; }
     var img = new Image();
     img.onload = function(){
       images[i] = img;
-      loaded++;
-      if (loaded === urls.length) finish();
+      settled++;
+      if (settled === urls.length) composite();
     };
     img.onerror = function(){
-      images[i] = null;
-      loaded++;
-      failed++;
-      if (loaded === urls.length) finish();
+      failed[i] = true;
+      settled++;
+      if (settled === urls.length) composite();
     };
     img.src = url;
   });
 
-  function finish(){
-    var ok = images.filter(Boolean);
-    if (!ok.length) { UI.toast('Couldn\u2019t export the dashboard.'); return; }
-    composite(ok);
-    UI.toast(failed ? ((failed === 1 ? 'One chart' : failed + ' charts') + ' couldn\u2019t be exported; the rest are in the image.') : 'Dashboard downloaded');
-  }
-
-  function composite(imagesToUse){
-    var cols = imagesToUse.length > 1 ? 2 : 1;
-    var rows = Math.ceil(imagesToUse.length / cols);
-    var cellW = 800, cellH = 500;
+  function composite(){
+    if (images.every(function(img){ return !img; })) {
+      UI.toast('Couldn\u2019t export the dashboard.');
+      return;
+    }
+    var cols = chartedPanels.length > 1 ? 2 : 1;
+    var rows = Math.ceil(chartedPanels.length / cols);
     var canvas = document.createElement('canvas');
     canvas.width = cellW * cols;
     canvas.height = cellH * rows;
     var ctx = canvas.getContext('2d');
     ctx.fillStyle = PALETTE.bg2;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    imagesToUse.forEach(function(img, i){
+    images.forEach(function(img, i){
+      if (!img) return;
       var col = i % cols, row = Math.floor(i / cols);
       ctx.drawImage(img, col*cellW, row*cellH, cellW, cellH);
     });
     triggerDownload(canvas.toDataURL('image/png'), dashboardFilename('png'));
+    UI.toast(failed.some(Boolean) ? 'Dashboard downloaded (some charts couldn\u2019t be included)' : 'Dashboard downloaded');
   }
 };
 
@@ -3935,7 +3930,8 @@ UI.renderInspector = function(){
     fieldsHtml += fieldRowWithNone('Split by', 'seriesField', catCols, spec.seriesField);
   } else if (spec.type === 'bar' || spec.type === 'donut') {
     fieldsHtml += fieldRow('Category field', 'xField', catCols, spec.xField);
-    fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
+    var valueCols = numCols.filter(function(c){ return c.name !== spec.xField; });
+    fieldsHtml += fieldRowWithCount('Value field', 'yField', valueCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
     fieldsHtml += sortRow(spec.sortMode);
     fieldsHtml += rangeRow('Top categories', 'topN', spec.topN || (spec.type === 'donut' ? 8 : 12), 3, 20);
@@ -4003,6 +3999,7 @@ UI.updateSpecField = function(role, value){
     spec.currency = Spec.isCurrency(spec.yField);
   }
   if (role === 'xField' && spec.seriesField === spec.xField) spec.seriesField = null;
+  if (role === 'xField' && (spec.type === 'bar' || spec.type === 'donut') && spec.yField === spec.xField) spec.yField = null;
   if (role === 'xField' && (spec.type === 'bar' || spec.type === 'donut')) {
     var col = findColumn(Store.get().dataset.columns, spec.xField);
     if (col) spec.sortMode = Spec.defaultSortMode(col);
@@ -4032,8 +4029,10 @@ UI.changeChartType = function(newType){
     newSpec = v ? Spec.buildTimeSeries(d, v) : Spec.buildTimeSeriesCount(d);
     newSpec.type = newType;
   } else if (newType === 'bar' || newType === 'donut') {
-    var c = pick(catCols, old.xField), v2 = old.yField ? pick(numCols, old.yField) : null;
+    var c = pick(catCols, old.xField);
     if (!c) { UI.toast('Need a category column for that.'); return; }
+    var v2Candidates = numCols.filter(function(col){ return col.name !== c.name; });
+    var v2 = old.yField ? pick(v2Candidates, old.yField) : null;
     newSpec = v2 ? Spec.buildCategoryNumeric(c, v2) : Spec.buildCategoryCount(c);
     newSpec.type = newType;
   } else if (newType === 'scatter') {
