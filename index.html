@@ -328,6 +328,8 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .field-row{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--sp-4);}
 .field-row:last-child{margin-bottom:0;}
 .type-gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-2);margin-bottom:var(--sp-4);}
+.type-gallery-caption{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin:var(--sp-4) 0 var(--sp-3);}
+.type-gallery-wrap .type-gallery-caption:first-child{margin-top:0;}
 .type-tile{
   position:relative;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
@@ -645,6 +647,36 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
       <path d="M15 8V5.5"/>
     </symbol>
 
+    <symbol id="i-chart-ecdf" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M5 19h2.4v-2.6h2v-3h2v-3.4h2v-2.8h2v-1.6h3.6" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-density" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M4.5 18.5c2 0 2.6-9.5 4.6-9.5s2 6.6 3.9 6.6 2.3-10.6 4.3-10.6 2.2 13.5 5.2 13.5" stroke-width="2"/>
+    </symbol>
+
+    <symbol id="i-chart-strip" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <g fill="currentColor" stroke="none">
+        <circle cx="8" cy="8.5" r="1.3"/><circle cx="11.5" cy="8.5" r="1.3"/><circle cx="15.5" cy="8.5" r="1.3"/><circle cx="18.5" cy="8.5" r="1.3"/>
+        <circle cx="7" cy="13" r="1.3"/><circle cx="10" cy="13" r="1.3"/><circle cx="13.5" cy="13" r="1.3"/><circle cx="17" cy="13" r="1.3"/><circle cx="19.5" cy="13" r="1.3"/>
+        <circle cx="9" cy="17.5" r="1.3"/><circle cx="12.5" cy="17.5" r="1.3"/><circle cx="16" cy="17.5" r="1.3"/>
+      </g>
+    </symbol>
+
+    <symbol id="i-chart-violin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4v16h16" opacity=".45"/>
+      <path d="M14 8c1.8 1 1.8 2.6 1.8 4s0 3-1.8 4M10 8c-1.8 1-1.8 2.6-1.8 4s0 3 1.8 4" stroke-width="1.8"/>
+      <path d="M12 6v12" stroke-width="1.8"/>
+      <path d="M9.2 12h5.6" stroke-width="1.8"/>
+    </symbol>
+
     <symbol id="i-add-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3.25" y="4.25" width="17.5" height="15.5" rx="3.25" opacity=".45"/>
@@ -944,6 +976,34 @@ function registerKilnTheme(){
   registerChartTheme('paper', paletteForTheme(true));
   refreshPalette();
 }
+
+var Caps = (function(){
+  var cache = {};
+  function probe(seriesType){
+    if (typeof echarts === 'undefined') return false;
+    var host = document.createElement('div');
+    host.style.cssText = 'position:absolute;width:2px;height:2px;left:-9999px;top:-9999px';
+    document.body.appendChild(host);
+    var ok = false, inst = null;
+    var realErr = console.error, realWarn = console.warn;
+    console.error = function(){}; console.warn = function(){};
+    try {
+      inst = echarts.init(host);
+      inst.setOption({ series: [{ type: seriesType, data: [] }] }, true);
+      ok = inst.getModel().getSeriesCount() > 0;
+    } catch (e) { ok = false; }
+    console.error = realErr; console.warn = realWarn;
+    try { if (inst) inst.dispose(); } catch (e) {}
+    host.remove();
+    return ok;
+  }
+  return {
+    supports: function(seriesType){
+      if (!(seriesType in cache)) cache[seriesType] = probe(seriesType);
+      return cache[seriesType];
+    }
+  };
+})();
 
 var Store = (function(){
   var state = { dataset: null, sourceName: null };
@@ -1574,6 +1634,7 @@ function columnAllPositive(col){
 }
 
 Spec.regenerateTitle = function(spec){
+  if (PLUGINS[spec.type]) return PLUGINS[spec.type].title(spec);
   var aggLabel = null;
   if (spec.aggregation === 'avg') aggLabel = 'Average';
   else if (spec.aggregation === 'count' && spec.yField) aggLabel = 'Count';
@@ -2183,6 +2244,7 @@ Persistence.clearDataset = function(){
 Persistence.saveDashboard = function(){
   try {
     var payload = {
+      version: DRAW_SCHEMA,
       panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }),
       filters: Filters.list,
       activeIndex: UI.activeIndex,
@@ -2241,6 +2303,9 @@ Render.buildOption = function(spec, columns, mask, selection){
     return (unit || '') + Spec.formatCompact(v);
   };
   var fmtTooltip = function(v){ return Spec.formatExact(v, unit); };
+
+  var _p = PLUGINS[spec.type];
+  if (_p) return _p.build(spec, columns, mask, selection, { fmt: fmt, fmtTooltip: fmtTooltip, unit: unit, findColumn: findColumn });
 
   if (spec.type === 'line' || spec.type === 'area') {
     var showPoints = spec.showPoints !== false;
@@ -2464,6 +2529,7 @@ Render.buildOption = function(spec, columns, mask, selection){
 
 function optionHasData(option, spec){
   if (!option || !option.series || !option.series.length) return false;
+  if (spec && PLUGINS[spec.type] && PLUGINS[spec.type].hasData) return PLUGINS[spec.type].hasData(option, spec);
   var has = option.series.some(function(s){ return s.data && s.data.length > 0; });
   if (has && spec && spec.type === 'histogram') {
     var sum = option.series[0].data.reduce(function(a, b){ return a + (isNaN(b) ? 0 : b); }, 0);
@@ -2473,7 +2539,7 @@ function optionHasData(option, spec){
 }
 
 function chartAriaSummary(spec, option){
-  var typeLabel = { line: 'Line', area: 'Area', bar: 'Bar', donut: 'Donut', scatter: 'Scatter', histogram: 'Histogram' }[spec.type] || 'Chart';
+  var typeLabel = (PLUGINS[spec.type] && PLUGINS[spec.type].label) || { line: 'Line', area: 'Area', bar: 'Bar', donut: 'Donut', scatter: 'Scatter', histogram: 'Histogram' }[spec.type] || 'Chart';
   var count = 0;
   if (option && option.series) {
     option.series.forEach(function(s){ if (s.data) count += s.data.length; });
@@ -2490,6 +2556,795 @@ var CHART_TYPES = [
   { value: 'scatter', label: 'Scatter' },
   { value: 'histogram', label: 'Histogram' }
 ];
+
+var DRAW_SCHEMA = 2;
+var BUILTIN_TYPES = { line: 1, area: 1, bar: 1, donut: 1, scatter: 1, histogram: 1 };
+
+var PLUGINS = {};
+function registerChart(def){ PLUGINS[def.type] = def; }
+
+var Stat = {};
+
+Stat.collectByGroup = function(columns, valueField, groupField, mask, maxGroups){
+  var col = findColumn(columns, valueField);
+  var gcol = groupField ? findColumn(columns, groupField) : null;
+  var n = col.values.length;
+  var order = [], map = {};
+  for (var i = 0; i < n; i++){
+    if (mask && !mask[i]) continue;
+    var v = col.values[i];
+    if (isNaN(v)) continue;
+    var name = gcol ? catRawLabel(gcol, i) : null;
+    if (gcol && name === null) continue;
+    var key = gcol ? name : '\u0000all';
+    if (!map[key]) { map[key] = { name: name, values: [] }; order.push(key); }
+    map[key].values.push(v);
+  }
+  var groups = order.slice(0, maxGroups || 30).map(function(k){ return map[k]; });
+  var total = 0;
+  groups.forEach(function(g){ total += g.values.length; });
+  if (total > 200000) {
+    groups.forEach(function(g){
+      var share = g.values.length / total;
+      var budget = Math.max(50, Math.round(200000 * share));
+      if (g.values.length > budget) g.values = Stat.thin(g.values, budget);
+    });
+  }
+  return groups;
+};
+
+Stat.quantile = function(sorted, p){
+  var n = sorted.length;
+  if (!n) return NaN;
+  if (n === 1) return sorted[0];
+  var h = (n - 1) * p;
+  var lo = Math.floor(h), hi = Math.ceil(h);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (h - lo) * (sorted[hi] - sorted[lo]);
+};
+
+Stat.boxStats = function(sorted){
+  var n = sorted.length;
+  if (!n) return null;
+  var q1 = Stat.quantile(sorted, 0.25);
+  var med = Stat.quantile(sorted, 0.5);
+  var q3 = Stat.quantile(sorted, 0.75);
+  var iqr = q3 - q1;
+  var loFence = q1 - 1.5 * iqr;
+  var hiFence = q3 + 1.5 * iqr;
+  var lo = sorted[n - 1], hi = sorted[0];
+  var outliers = [];
+  for (var i = 0; i < n; i++){
+    var v = sorted[i];
+    if (v < loFence || v > hiFence) { outliers.push(v); continue; }
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (outliers.length > 200) outliers = Stat.thin(outliers, 200);
+  return { q1: q1, med: med, q3: q3, lo: lo, hi: hi, outliers: outliers };
+};
+
+Stat.kde = function(sorted, gridSize, bwMultiplier){
+  var n = sorted.length;
+  gridSize = gridSize || 64;
+  if (!n) return { xs: [], ys: [] };
+  var mean = 0;
+  for (var i = 0; i < n; i++) mean += sorted[i];
+  mean /= n;
+  var variance = 0;
+  for (var j = 0; j < n; j++) variance += (sorted[j] - mean) * (sorted[j] - mean);
+  variance /= (n > 1 ? (n - 1) : 1);
+  var sd = Math.sqrt(variance);
+  var q1 = Stat.quantile(sorted, 0.25);
+  var q3 = Stat.quantile(sorted, 0.75);
+  var spread = Math.min(sd || Infinity, ((q3 - q1) / 1.34) || Infinity);
+  if (!isFinite(spread) || spread === 0) spread = sd || 1;
+  var h = 0.9 * spread * Math.pow(n, -0.2) * (bwMultiplier || 1);
+  if (!h || !isFinite(h) || h === 0) h = ((sorted[n - 1] - sorted[0]) / 20) || 1;
+  var minV = sorted[0], maxV = sorted[n - 1];
+  var pad = (maxV - minV) * 0.1 || 1;
+  var lo = minV - pad, hi = maxV + pad;
+  var xs = new Array(gridSize), ys = new Array(gridSize);
+  var step = (hi - lo) / (gridSize - 1);
+  var norm = 1 / (n * h * Math.sqrt(2 * Math.PI));
+  for (var g = 0; g < gridSize; g++){
+    var x = lo + g * step;
+    var sum = 0;
+    for (var k = 0; k < n; k++){
+      var u = (x - sorted[k]) / h;
+      sum += Math.exp(-0.5 * u * u);
+    }
+    xs[g] = x;
+    ys[g] = sum * norm;
+  }
+  return { xs: xs, ys: ys };
+};
+
+Stat.jitter = function(rowIndex, spread){
+  return (((rowIndex * 2654435761) % 1000) / 1000 - 0.5) * spread;
+};
+
+Stat.beeswarmOffsets = function(values, valueRange, maxHalf){
+  var numBuckets = 40;
+  var bucketSize = (valueRange || 1) / numBuckets || 1;
+  var counts = {};
+  return values.map(function(v){
+    var b = Math.round(v / bucketSize);
+    var c = counts[b] || 0;
+    counts[b] = c + 1;
+    var side = (c % 2 === 0) ? 1 : -1;
+    var rank = Math.ceil(c / 2);
+    var off = side * rank * (maxHalf / 6);
+    return Math.max(-maxHalf, Math.min(maxHalf, off));
+  });
+};
+
+Stat.thin = function(arr, maxLen){
+  var n = arr.length;
+  if (n <= maxLen || maxLen <= 1) return arr.slice();
+  var out = new Array(maxLen);
+  var stride = (n - 1) / (maxLen - 1);
+  for (var i = 0; i < maxLen; i++) out[i] = arr[Math.round(i * stride)];
+  return out;
+};
+
+Stat.rugSeries = function(values, unit){
+  var thinned = Stat.thin(values, 800);
+  return {
+    type: 'scatter',
+    data: thinned.map(function(v){ return [v, 0]; }),
+    symbol: 'rect',
+    symbolSize: [1, 6],
+    itemStyle: { opacity: 0.5 },
+    silent: true,
+    tooltip: { show: false },
+    z: 1
+  };
+};
+
+registerChart({
+  type: 'ecdf',
+  label: 'ECDF',
+  group: 'distribution',
+  needs: [],
+  reason: 'Needs a number column',
+  available: function(c){ return c.num.length >= 1; },
+  makeSpec: function(old, c){
+    var f = (old && c.num.some(function(x){ return x.name === old.xField; })) ? old.xField
+          : (old && c.num.some(function(x){ return x.name === old.yField; })) ? old.yField
+          : (c.num[0] && c.num[0].name);
+    if (!f) return null;
+    var s = { type: 'ecdf', xField: f, yField: null, seriesField: null, showPoints: false, showRug: false };
+    s.title = 'Cumulative Distribution of ' + titleCase(f);
+    return s;
+  },
+  title: function(s){ return 'Cumulative Distribution of ' + titleCase(s.xField); },
+  numericFields: function(s){ return [s.xField]; },
+  fields: function(s, c, H){
+    return H.fieldRow('Field', 'xField', c.num, s.xField) +
+           H.fieldRowWithNone('Split by', 'seriesField', c.cat, s.seriesField);
+  },
+  style: function(s, H){
+    return H.toggleRow('Show points', 'showPoints', s.showPoints) +
+           H.toggleRow('Show rug', 'showRug', s.showRug);
+  },
+  build: function(spec, columns, mask, selection, F){
+    var col = F.findColumn(columns, spec.xField);
+    var groups = Stat.collectByGroup(columns, spec.xField, spec.seriesField, mask, 6);
+    if (!groups.length) return { series: [] };
+    var series = groups.map(function(g){
+      var v = g.values;
+      v.sort(function(a, b){ return a - b; });
+      var pts = Stat.thin(v, 1200).map(function(x, i, arr){ return [x, (i + 1) / arr.length]; });
+      return {
+        name: g.name, type: 'line', step: 'end', smooth: false,
+        showSymbol: !!spec.showPoints, symbolSize: 4,
+        data: pts
+      };
+    });
+    if (spec.showRug) series.push(Stat.rugSeries(groups[0].values, col.unit));
+    return {
+      grid: { left: 16, right: 24, top: groups.length > 1 ? 40 : 24, bottom: 32, containLabel: true },
+      legend: groups.length > 1 ? { top: 4 } : undefined,
+      xAxis: { type: 'value', name: titleCase(spec.xField), nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: F.fmt } },
+      yAxis: { type: 'value', min: 0, max: 1, name: 'Cumulative share', nameLocation: 'middle', nameGap: 44, axisLabel: { formatter: function(v){ return Math.round(v * 100) + '%'; } } },
+      tooltip: { trigger: 'item', formatter: function(p){
+        return escapeHtml(titleCase(spec.xField)) + ': ' + escapeHtml(F.fmtTooltip(p.value[0])) + '<br/>' + Math.round(p.value[1] * 100) + '% of rows at or below';
+      } },
+      series: series
+    };
+  }
+});
+
+registerChart({
+  type: 'density',
+  label: 'Density',
+  group: 'distribution',
+  needs: [],
+  reason: 'Needs a number column',
+  available: function(c){ return c.num.length >= 1; },
+  makeSpec: function(old, c){
+    var f = (old && c.num.some(function(x){ return x.name === old.xField; })) ? old.xField
+          : (old && c.num.some(function(x){ return x.name === old.yField; })) ? old.yField
+          : (c.num[0] && c.num[0].name);
+    if (!f) return null;
+    var s = { type: 'density', xField: f, seriesField: null, buckets: 16, showCurve: true, showRug: false };
+    s.title = 'Distribution of ' + titleCase(f);
+    return s;
+  },
+  title: function(s){ return 'Distribution of ' + titleCase(s.xField); },
+  numericFields: function(s){ return [s.xField]; },
+  fields: function(s, c, H){
+    return H.fieldRow('Field', 'xField', c.num, s.xField) +
+           H.fieldRowWithNone('Split by', 'seriesField', c.cat, s.seriesField);
+  },
+  style: function(s, H){
+    return H.rangeRow('Buckets', 'buckets', s.buckets || 16, 8, 48) +
+           H.toggleRow('Show curve', 'showCurve', s.showCurve !== false) +
+           H.toggleRow('Show rug', 'showRug', s.showRug);
+  },
+  build: function(spec, columns, mask, selection, F){
+    var groups = Stat.collectByGroup(columns, spec.xField, spec.seriesField, mask, 8);
+    if (!groups.length) return { series: [] };
+    var showCurve = spec.showCurve !== false;
+    var series = [];
+    if (groups.length === 1) {
+      var stats = histogramStats(columns, spec);
+      if (!stats) return { series: [] };
+      var minV = stats.min, buckets = stats.buckets, width = stats.width;
+      var vals = groups[0].values;
+      var counts = new Array(buckets).fill(0);
+      for (var i = 0; i < vals.length; i++){
+        var b = Math.floor((vals[i] - minV) / width);
+        if (b >= buckets) b = buckets - 1;
+        if (b < 0) b = 0;
+        counts[b]++;
+      }
+      series.push({
+        type: 'bar',
+        itemStyle: { borderRadius: [4, 4, 0, 0] },
+        data: counts.map(function(cnt, k){ return [minV + (k + 0.5) * width, cnt]; })
+      });
+      if (showCurve) {
+        var sortedVals = vals.slice().sort(function(a, b){ return a - b; });
+        var kde = Stat.kde(sortedVals, 64);
+        var maxCount = counts.reduce(function(m, c){ return Math.max(m, c); }, 1);
+        var maxDensity = kde.ys.reduce(function(m, y){ return Math.max(m, y); }, 1e-9);
+        var scale = maxCount / maxDensity;
+        series.push({
+          type: 'line', smooth: true, showSymbol: false, z: 3,
+          data: kde.xs.map(function(x, k){ return [x, kde.ys[k] * scale]; })
+        });
+      }
+      if (spec.showRug) series.push(Stat.rugSeries(vals, stats.unit));
+    } else {
+      groups.forEach(function(g){
+        var sv = g.values.slice().sort(function(a, b){ return a - b; });
+        var kde2 = Stat.kde(sv, 64);
+        series.push({ name: g.name, type: 'line', smooth: true, showSymbol: false, data: kde2.xs.map(function(x, k){ return [x, kde2.ys[k]]; }) });
+      });
+    }
+    return {
+      grid: { left: 16, right: 24, top: groups.length > 1 ? 40 : 24, bottom: 32, containLabel: true },
+      legend: groups.length > 1 ? { top: 4 } : undefined,
+      xAxis: { type: 'value', name: titleCase(spec.xField), nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: F.fmt } },
+      yAxis: { type: 'value', name: groups.length > 1 ? 'Density' : 'Frequency', nameLocation: 'middle', nameGap: 44 },
+      tooltip: { trigger: 'axis', valueFormatter: groups.length > 1 ? undefined : F.fmtTooltip },
+      series: series
+    };
+  }
+});
+
+registerChart({
+  type: 'strip',
+  label: 'Strip',
+  group: 'distribution',
+  needs: [],
+  reason: 'Needs a category and a number column',
+  available: function(c){ return c.cat.length >= 1 && c.num.length >= 1; },
+  makeSpec: function(old, c){
+    var cat = (old && c.cat.some(function(x){ return x.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
+    var numCands = c.num.filter(function(x){ return x.name !== cat; });
+    var val = (old && numCands.some(function(x){ return x.name === old.yField; })) ? old.yField : (numCands[0] && numCands[0].name);
+    if (!cat || !val) return null;
+    var s = { type: 'strip', xField: cat, yField: val, pointSize: 5, jitterWidth: 55, beeswarm: false };
+    s.title = titleCase(val) + ' by ' + titleCase(cat);
+    return s;
+  },
+  title: function(s){ return titleCase(s.yField) + ' by ' + titleCase(s.xField); },
+  numericFields: function(s){ return [s.yField]; },
+  fields: function(s, c, H){
+    var numCands = c.num.filter(function(x){ return x.name !== s.xField; });
+    return H.fieldRow('Category field', 'xField', c.cat, s.xField) +
+           H.fieldRow('Value field', 'yField', numCands, s.yField);
+  },
+  style: function(s, H){
+    return H.toggleRow('Beeswarm layout', 'beeswarm', !!s.beeswarm) +
+           H.rangeRow('Point size', 'pointSize', s.pointSize || 5, 3, 12) +
+           H.rangeRow('Jitter width', 'jitterWidth', s.jitterWidth != null ? s.jitterWidth : 55, 0, 100);
+  },
+  build: function(spec, columns, mask, selection, F){
+    var xcol = F.findColumn(columns, spec.xField);
+    var ycol = F.findColumn(columns, spec.yField);
+    var n = ycol.values.length;
+    var order = [], map = {};
+    for (var i = 0; i < n; i++){
+      if (mask && !mask[i]) continue;
+      var v = ycol.values[i];
+      if (isNaN(v)) continue;
+      var label = catRawLabel(xcol, i);
+      if (label === null) continue;
+      if (!map[label]) { map[label] = []; order.push(label); }
+      map[label].push({ v: v, i: i });
+    }
+    var groupNames = order.slice(0, 30);
+    var totalPoints = 0;
+    groupNames.forEach(function(name){ totalPoints += map[name].length; });
+    var capped = totalPoints > 3000;
+    var beeswarmRequested = !!spec.beeswarm;
+    var beeswarmForcedOff = beeswarmRequested && totalPoints > 1500;
+    var useBeeswarm = beeswarmRequested && !beeswarmForcedOff;
+    var jitterWidth = (spec.jitterWidth != null ? spec.jitterWidth : 55) / 100;
+    var pointSize = spec.pointSize || 5;
+    var selSet = selectedLabelSet(selection);
+    var series = groupNames.map(function(name, gi){
+      var pts = map[name];
+      var keep = pts;
+      if (capped) {
+        var budget = Math.max(1, Math.round(3000 * (pts.length / totalPoints)));
+        keep = Stat.thin(pts, budget);
+      }
+      var data;
+      if (useBeeswarm) {
+        var sortedKeep = keep.slice().sort(function(a, b){ return a.v - b.v; });
+        var vals = sortedKeep.map(function(p){ return p.v; });
+        var range = vals.length ? (vals[vals.length - 1] - vals[0]) : 0;
+        var offsets = Stat.beeswarmOffsets(vals, range, jitterWidth * 0.42);
+        data = sortedKeep.map(function(p, k){
+          var item = { value: [gi + offsets[k], p.v], name: name };
+          if (selSet) item.itemStyle = { opacity: selSet.has(name) ? 1 : 0.35 };
+          return item;
+        });
+      } else {
+        data = keep.map(function(p){
+          var j = Stat.jitter(p.i, jitterWidth * 0.84);
+          var item = { value: [gi + j, p.v], name: name };
+          if (selSet) item.itemStyle = { opacity: selSet.has(name) ? 1 : 0.35 };
+          return item;
+        });
+      }
+      return { name: name, type: 'scatter', symbolSize: pointSize, data: data };
+    });
+    var option = {
+      grid: { left: 16, right: 24, top: 24, bottom: groupNames.length > 5 ? 56 : 32, containLabel: true },
+      xAxis: { type: 'category', data: groupNames, axisLabel: { rotate: groupNames.length > 5 ? 30 : 0, interval: 0 } },
+      yAxis: { type: 'value', name: titleCase(spec.yField), nameLocation: 'middle', nameGap: 44, axisLabel: { formatter: F.fmt } },
+      tooltip: { trigger: 'item', formatter: function(p){ return escapeHtml(p.data.name) + ': ' + escapeHtml(F.fmtTooltip(p.value[1])); } },
+      series: series
+    };
+    if (capped) {
+      option.graphic = [{ type: 'text', right: 8, bottom: 4, style: { text: 'Showing a 3,000-point sample', fill: readCSSVar('--ink-3'), fontSize: 10 } }];
+    } else if (beeswarmForcedOff) {
+      option.graphic = [{ type: 'text', right: 8, bottom: 4, style: { text: 'Beeswarm needs \u2264 1,500 points \u2014 showing jitter', fill: readCSSVar('--ink-3'), fontSize: 10 } }];
+    }
+    return option;
+  },
+  onClick: function(panel, params){
+    if (!params || params.componentType !== 'series') return false;
+    var name = (params.data && params.data.name) || params.seriesName;
+    if (!name) return false;
+    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    return true;
+  },
+  csv: function(panel, opt){
+    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var lines = [q(panel.spec.xField) + ',' + q(panel.spec.yField)];
+    (opt.series || []).forEach(function(s){
+      (s.data || []).forEach(function(d){
+        var name = (d && d.name) || s.name;
+        var val = d && d.value ? d.value[1] : null;
+        if (val == null) return;
+        lines.push(q(name) + ',' + val);
+      });
+    });
+    return lines;
+  }
+});
+
+registerChart({
+  type: 'boxplot',
+  label: 'Box Plot',
+  group: 'distribution',
+  needs: ['boxplot'],
+  reason: 'Needs a category and a number column',
+  available: function(c){ return c.cat.length >= 1 && c.num.length >= 1; },
+  makeSpec: function(old, c){
+    var cat = (old && c.cat.some(function(x){ return x.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
+    var numCands = c.num.filter(function(x){ return x.name !== cat; });
+    var val = (old && numCands.some(function(x){ return x.name === old.yField; })) ? old.yField : (numCands[0] && numCands[0].name);
+    if (!cat || !val) return null;
+    var s = { type: 'boxplot', xField: cat, yField: val, showOutliers: true, horizontal: false };
+    s.title = titleCase(val) + ' by ' + titleCase(cat);
+    return s;
+  },
+  title: function(s){ return titleCase(s.yField) + ' by ' + titleCase(s.xField); },
+  numericFields: function(s){ return [s.yField]; },
+  fields: function(s, c, H){
+    var numCands = c.num.filter(function(x){ return x.name !== s.xField; });
+    return H.fieldRow('Category field', 'xField', c.cat, s.xField) +
+           H.fieldRow('Value field', 'yField', numCands, s.yField);
+  },
+  style: function(s, H){
+    return H.toggleRow('Show outliers', 'showOutliers', s.showOutliers !== false) +
+           H.toggleRow('Horizontal', 'horizontal', !!s.horizontal);
+  },
+  build: function(spec, columns, mask, selection, F){
+    var groups = Stat.collectByGroup(columns, spec.yField, spec.xField, mask, 30);
+    if (!groups.length) return { series: [] };
+    var horizontal = !!spec.horizontal || groups.length > 8;
+    var showOutliers = spec.showOutliers !== false;
+    var names = [], boxData = [], outlierData = [];
+    groups.forEach(function(g, gi){
+      names.push(g.name);
+      var sorted = g.values.slice().sort(function(a, b){ return a - b; });
+      var stats = Stat.boxStats(sorted);
+      if (!stats) { boxData.push({ value: [0, 0, 0, 0, 0], name: g.name, n: 0 }); return; }
+      boxData.push({ value: [stats.lo, stats.q1, stats.med, stats.q3, stats.hi], name: g.name, n: sorted.length });
+      if (showOutliers) {
+        stats.outliers.forEach(function(v){
+          var pt = horizontal ? [v, gi] : [gi, v];
+          outlierData.push({ value: pt, name: g.name });
+        });
+      }
+    });
+    var series = [{ type: 'boxplot', data: boxData }];
+    if (showOutliers && outlierData.length) series.push({ type: 'scatter', data: outlierData, symbolSize: 6, itemStyle: { opacity: 0.6 } });
+    var catAxis = { type: 'category', data: names, axisLabel: { rotate: !horizontal && names.length > 8 ? 30 : 0, interval: 0 } };
+    var valAxis = { type: 'value', name: titleCase(spec.yField), nameLocation: 'middle', nameGap: 44, axisLabel: { formatter: F.fmt } };
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: (!horizontal && names.length > 8) ? 56 : 32, containLabel: true },
+      xAxis: horizontal ? valAxis : catAxis,
+      yAxis: horizontal ? catAxis : valAxis,
+      tooltip: { trigger: 'item', formatter: function(p){
+        if (p.seriesType === 'boxplot') {
+          var d = p.data.value || p.data;
+          return escapeHtml(p.data.name || '') + '<br/>Max: ' + escapeHtml(F.fmtTooltip(d[4])) +
+            '<br/>Q3: ' + escapeHtml(F.fmtTooltip(d[3])) + '<br/>Median: ' + escapeHtml(F.fmtTooltip(d[2])) +
+            '<br/>Q1: ' + escapeHtml(F.fmtTooltip(d[1])) + '<br/>Min: ' + escapeHtml(F.fmtTooltip(d[0]));
+        }
+        var ov = p.data.value || p.data;
+        return 'Outlier: ' + escapeHtml(F.fmtTooltip(horizontal ? ov[0] : ov[1]));
+      } },
+      series: series
+    };
+  },
+  onClick: function(panel, params){
+    if (!params || params.componentType !== 'series') return false;
+    var name = (params.data && params.data.name) || params.name;
+    if (!name) return false;
+    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    return true;
+  },
+  csv: function(panel, opt){
+    var boxSeries = (opt.series || []).filter(function(s){ return s.type === 'boxplot'; })[0];
+    if (!boxSeries) return null;
+    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var lines = ['group,min,q1,median,q3,max,n'];
+    boxSeries.data.forEach(function(d){
+      var v = (d && d.value) || d;
+      var n = (d && d.n != null) ? d.n : '';
+      var name = (d && d.name != null) ? d.name : '';
+      lines.push(q(name) + ',' + v[0] + ',' + v[1] + ',' + v[2] + ',' + v[3] + ',' + v[4] + ',' + n);
+    });
+    return lines;
+  }
+});
+
+registerChart({
+  type: 'heatmap',
+  label: 'Heatmap',
+  group: 'structure',
+  needs: ['heatmap'],
+  reason: 'Needs two category columns',
+  available: function(c){ return c.cat.length >= 2; },
+  makeSpec: function(old, c){
+    var x = (old && c.cat.some(function(v){ return v.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
+    var yCands = c.cat.filter(function(v){ return v.name !== x; });
+    var y = (old && yCands.some(function(v){ return v.name === old.seriesField; })) ? old.seriesField : (yCands[0] && yCands[0].name);
+    if (!x || !y) return null;
+    var s = { type: 'heatmap', xField: x, seriesField: y, yField: null, aggregation: 'count' };
+    s.title = titleCase(x) + ' vs ' + titleCase(y);
+    return s;
+  },
+  title: function(s){ return titleCase(s.xField) + ' vs ' + titleCase(s.seriesField); },
+  numericFields: function(s){ return s.yField ? [s.yField] : []; },
+  fields: function(s, c, H){
+    var yCands = c.cat.filter(function(v){ return v.name !== s.xField; });
+    return H.fieldRow('X field', 'xField', c.cat, s.xField) +
+           H.fieldRow('Y field', 'seriesField', yCands, s.seriesField) +
+           H.fieldRowWithNone('Value field', 'yField', c.num, s.yField) +
+           (s.yField ? H.aggRow(s.aggregation) : '');
+  },
+  style: function(){ return ''; },
+  build: function(spec, columns, mask, selection, F){
+    var agg = spec.yField ? (spec.aggregation || 'sum') : 'count';
+    var grouped = Spec.groupByCategory(columns, spec.xField, spec.yField, agg, mask, spec.seriesField, 40);
+    if (!grouped.labels.length || !grouped.series.length) return { series: [] };
+    var xNames = grouped.labels;
+    var yNames = grouped.series.map(function(s){ return s.name; });
+    var cells = [];
+    var maxV = -Infinity, minV = Infinity;
+    grouped.series.forEach(function(s, yi){
+      s.data.forEach(function(v, xi){
+        cells.push({ value: [xi, yi, v], name: xNames[xi] });
+        if (v > maxV) maxV = v;
+        if (v < minV) minV = v;
+      });
+    });
+    if (!isFinite(maxV)) { maxV = 1; minV = 0; }
+    var accent = readCSSVar('--accent') || '#E07A55';
+    var jade = readCSSVar('--jade') || '#63B3A4';
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: (xNames.length > 8 ? 30 : 18) + 56, containLabel: true },
+      xAxis: { type: 'category', data: xNames, splitArea: { show: true }, axisLabel: { rotate: xNames.length > 8 ? 30 : 0, interval: 0 } },
+      yAxis: { type: 'category', data: yNames, splitArea: { show: true } },
+      visualMap: { type: 'continuous', min: minV, max: maxV, calculable: true, orient: 'horizontal', left: 'center', bottom: 0, inRange: { color: [jade, accent] } },
+      tooltip: { trigger: 'item', formatter: function(p){
+        var xi = p.value[0], yi = p.value[1];
+        return escapeHtml(xNames[xi]) + ' / ' + escapeHtml(yNames[yi]) + '<br/>' + escapeHtml(F.fmtTooltip(p.value[2]));
+      } },
+      series: [{ type: 'heatmap', data: cells, label: { show: false } }]
+    };
+  },
+  onClick: function(panel, params){
+    if (!params || params.componentType !== 'series') return false;
+    var name = params.data && params.data.name;
+    if (!name) return false;
+    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    return true;
+  },
+  csv: function(panel, opt){
+    var s = (opt.series || [])[0];
+    if (!s || s.type !== 'heatmap') return null;
+    var xNames = (opt.xAxis && opt.xAxis[0] && opt.xAxis[0].data) || [];
+    var yNames = (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].data) || [];
+    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField) + ',value'];
+    s.data.forEach(function(d){
+      var val = (d && d.value) || d;
+      lines.push(q(xNames[val[0]]) + ',' + q(yNames[val[1]]) + ',' + val[2]);
+    });
+    return lines;
+  }
+});
+
+registerChart({
+  type: 'treemap',
+  label: 'Treemap',
+  group: 'structure',
+  needs: ['treemap'],
+  reason: 'Needs a category column',
+  available: function(c){ return c.cat.length >= 1 && (c.num.length === 0 || c.num.some(function(col){ return columnAllPositive(col); })); },
+  makeSpec: function(old, c){
+    var x = (old && c.cat.some(function(v){ return v.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
+    if (!x) return null;
+    var posNum = c.num.filter(function(col){ return columnAllPositive(col); });
+    var val = (old && posNum.some(function(v){ return v.name === old.yField; })) ? old.yField : ((posNum[0] && posNum[0].name) || null);
+    var s = { type: 'treemap', xField: x, seriesField: null, yField: val, aggregation: val ? 'sum' : 'count', topN: 20 };
+    s.title = (val ? titleCase(val) : 'Count') + ' by ' + titleCase(x);
+    return s;
+  },
+  title: function(s){ return (s.yField ? titleCase(s.yField) : 'Count') + ' by ' + titleCase(s.xField); },
+  numericFields: function(s){ return s.yField ? [s.yField] : []; },
+  fields: function(s, c, H){
+    var seriesCands = c.cat.filter(function(v){ return v.name !== s.xField; });
+    var posNum = c.num.filter(function(col){ return columnAllPositive(col); });
+    return H.fieldRow('Category field', 'xField', c.cat, s.xField) +
+           H.fieldRowWithNone('Sub-category', 'seriesField', seriesCands, s.seriesField) +
+           H.fieldRowWithNone('Value field', 'yField', posNum, s.yField) +
+           (s.yField ? H.aggRow(s.aggregation) : '') +
+           H.rangeRow('Top categories', 'topN', s.topN || 20, 5, 40);
+  },
+  style: function(){ return ''; },
+  build: function(spec, columns, mask, selection, F){
+    var agg = spec.yField ? (spec.aggregation || 'sum') : 'count';
+    var nodes;
+    if (spec.seriesField) {
+      var grouped = Spec.groupByCategory(columns, spec.xField, spec.yField, agg, mask, spec.seriesField, spec.topN || 20);
+      if (!grouped.labels.length) return { series: [] };
+      nodes = grouped.labels.map(function(catName, xi){
+        var children = grouped.series.map(function(s){
+          return { name: s.name, value: Math.max(0, s.data[xi] || 0) };
+        }).filter(function(c){ return c.value > 0; });
+        var total = children.reduce(function(sum, c){ return sum + c.value; }, 0);
+        return { name: catName, value: total, children: children };
+      }).filter(function(n){ return n.value > 0; });
+    } else {
+      var rows = Spec.categoryRows(columns, spec.xField, spec.yField, agg, mask, spec.topN || 20, 'value-desc');
+      nodes = rows.map(function(r){ return { name: r.label, value: Math.max(0, r.value || 0) }; }).filter(function(n){ return n.value > 0; });
+    }
+    if (!nodes.length) return { series: [] };
+    return {
+      tooltip: { formatter: function(p){ return escapeHtml(p.name) + ': ' + escapeHtml(F.fmtTooltip(p.value)); } },
+      series: [{
+        type: 'treemap',
+        roam: false,
+        nodeClick: false,
+        leafDepth: 1,
+        breadcrumb: { show: false },
+        label: { show: true, formatter: '{b}' },
+        upperLabel: { show: !!spec.seriesField, height: 20 },
+        itemStyle: { borderRadius: 3, gapWidth: 2 },
+        data: nodes
+      }]
+    };
+  },
+  onClick: function(panel, params){
+    if (!params || params.componentType !== 'series') return false;
+    var level1Name = (params.treePathInfo && params.treePathInfo[0] && params.treePathInfo[0].name) || params.name;
+    if (!level1Name) return false;
+    Filters.add(panel.id, panel.spec.xField, 'value', level1Name);
+    return true;
+  },
+  csv: function(panel, opt){
+    var s = (opt.series || [])[0];
+    if (!s || s.type !== 'treemap') return null;
+    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField || '') + ',value'];
+    (s.data || []).forEach(function(node){
+      if (node.children && node.children.length) {
+        node.children.forEach(function(child){
+          lines.push(q(node.name) + ',' + q(child.name) + ',' + child.value);
+        });
+      } else {
+        lines.push(q(node.name) + ',,' + node.value);
+      }
+    });
+    return lines;
+  }
+});
+
+registerChart({
+  type: 'violin',
+  label: 'Violin',
+  group: 'distribution',
+  needs: ['custom'],
+  reason: 'Needs a category and a number column',
+  available: function(c){ return c.cat.length >= 1 && c.num.length >= 1; },
+  makeSpec: function(old, c){
+    var cat = (old && c.cat.some(function(x){ return x.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
+    var numCands = c.num.filter(function(x){ return x.name !== cat; });
+    var val = (old && numCands.some(function(x){ return x.name === old.yField; })) ? old.yField : (numCands[0] && numCands[0].name);
+    if (!cat || !val) return null;
+    var s = { type: 'violin', xField: cat, yField: val, showBox: true, showMedian: true, bandwidth: 100 };
+    s.title = titleCase(val) + ' Distribution by ' + titleCase(cat);
+    return s;
+  },
+  title: function(s){ return titleCase(s.yField) + ' Distribution by ' + titleCase(s.xField); },
+  numericFields: function(s){ return [s.yField]; },
+  fields: function(s, c, H){
+    var numCands = c.num.filter(function(x){ return x.name !== s.xField; });
+    return H.fieldRow('Category field', 'xField', c.cat, s.xField) +
+           H.fieldRow('Value field', 'yField', numCands, s.yField);
+  },
+  style: function(s, H){
+    return H.toggleRow('Show box', 'showBox', s.showBox !== false) +
+           H.toggleRow('Show median', 'showMedian', s.showMedian !== false) +
+           H.rangeRow('Bandwidth', 'bandwidth', s.bandwidth != null ? s.bandwidth : 100, 50, 200);
+  },
+  build: function(spec, columns, mask, selection, F){
+    var groups = Stat.collectByGroup(columns, spec.yField, spec.xField, mask, 12);
+    if (!groups.length) return { series: [] };
+    var bw = (spec.bandwidth != null ? spec.bandwidth : 100) / 100;
+    var showBox = spec.showBox !== false;
+    var showMedian = spec.showMedian !== false;
+    var names = groups.map(function(g){ return g.name; });
+    var halfWidth = 0.38;
+
+    var profiles = groups.map(function(g){
+      var sorted = g.values.slice().sort(function(a, b){ return a - b; });
+      var n = sorted.length;
+      var stats = Stat.boxStats(sorted);
+      if (n < 8) return { mode: 'box', stats: stats, n: n };
+      var kde = Stat.kde(sorted, 48, bw);
+      var maxDensity = kde.ys.reduce(function(m, y){ return Math.max(m, y); }, 1e-9);
+      return { mode: 'violin', xs: kde.xs, ys: kde.ys, maxDensity: maxDensity, stats: stats, n: n };
+    });
+
+    var minY = Infinity, maxY = -Infinity;
+    profiles.forEach(function(p){
+      if (p.mode === 'violin') {
+        minY = Math.min(minY, p.xs[0]);
+        maxY = Math.max(maxY, p.xs[p.xs.length - 1]);
+      } else if (p.stats) {
+        minY = Math.min(minY, p.stats.lo);
+        maxY = Math.max(maxY, p.stats.hi);
+      }
+    });
+    if (!isFinite(minY) || !isFinite(maxY) || minY === maxY) { minY = (minY || 0) - 1; maxY = (maxY || 0) + 1; }
+    var pad = (maxY - minY) * 0.05 || 1;
+    minY -= pad; maxY += pad;
+
+    var series = [{
+      type: 'custom',
+      renderItem: function(params, api){
+        var gi = params.dataIndex;
+        var p = profiles[gi];
+        if (!p) return;
+        var color = api.visual('color');
+        if (p.mode === 'box' || !p.stats) {
+          var s = p.stats;
+          if (!s) return;
+          var lo = api.coord([gi, s.lo]);
+          var hi = api.coord([gi, s.hi]);
+          var q1 = api.coord([gi, s.q1]);
+          var q3 = api.coord([gi, s.q3]);
+          var med = api.coord([gi, s.med]);
+          var boxHalfPx = Math.abs(api.size([halfWidth * 0.45, 0])[0]);
+          return {
+            type: 'group',
+            children: [
+              { type: 'line', shape: { x1: lo[0], y1: lo[1], x2: hi[0], y2: hi[1] }, style: { stroke: color, lineWidth: 1.5 } },
+              { type: 'rect', shape: { x: q3[0] - boxHalfPx, y: q3[1], width: boxHalfPx * 2, height: Math.max(1, q1[1] - q3[1]) }, style: { fill: color, opacity: 0.5, stroke: color } },
+              { type: 'line', shape: { x1: med[0] - boxHalfPx, y1: med[1], x2: med[0] + boxHalfPx, y2: med[1] }, style: { stroke: '#fff', lineWidth: 2 } }
+            ]
+          };
+        }
+        var n = p.xs.length;
+        var rightPts = new Array(n), leftPts = new Array(n);
+        for (var i = 0; i < n; i++){
+          var w = (p.ys[i] / p.maxDensity) * halfWidth;
+          var pt = api.coord([gi, p.xs[i]]);
+          var wPix = Math.abs(api.size([w, 0])[0]);
+          rightPts[i] = [pt[0] + wPix, pt[1]];
+          leftPts[i] = [pt[0] - wPix, pt[1]];
+        }
+        var poly = rightPts.concat(leftPts.slice().reverse());
+        var children = [
+          { type: 'polygon', shape: { points: poly }, style: { fill: color, opacity: 0.55, stroke: color, lineWidth: 1 } }
+        ];
+        if (showBox && p.stats) {
+          var q1b = api.coord([gi, p.stats.q1]);
+          var q3b = api.coord([gi, p.stats.q3]);
+          var boxHalfPx2 = Math.abs(api.size([halfWidth * 0.14, 0])[0]);
+          children.push({ type: 'rect', shape: { x: q3b[0] - boxHalfPx2, y: q3b[1], width: boxHalfPx2 * 2, height: Math.max(1, q1b[1] - q3b[1]) }, style: { fill: '#333', opacity: 0.65 } });
+        }
+        if (showMedian && p.stats) {
+          var medb = api.coord([gi, p.stats.med]);
+          var medHalfPx = Math.abs(api.size([halfWidth * 0.85, 0])[0]);
+          children.push({ type: 'line', shape: { x1: medb[0] - medHalfPx, y1: medb[1], x2: medb[0] + medHalfPx, y2: medb[1] }, style: { stroke: '#fff', lineWidth: 2 } });
+        }
+        return { type: 'group', children: children };
+      },
+      data: profiles.map(function(p, gi){ return { value: [gi, p.stats ? p.stats.med : 0], name: names[gi] }; })
+    }];
+
+    return {
+      grid: { left: 16, right: 24, top: 24, bottom: names.length > 8 ? 56 : 32, containLabel: true },
+      xAxis: { type: 'category', data: names, axisLabel: { rotate: names.length > 8 ? 30 : 0, interval: 0 } },
+      yAxis: { type: 'value', min: minY, max: maxY, name: titleCase(spec.yField), nameLocation: 'middle', nameGap: 44, axisLabel: { formatter: F.fmt } },
+      tooltip: { trigger: 'item', formatter: function(p){
+        var prof = profiles[p.dataIndex];
+        if (!prof || !prof.stats) return '';
+        var s = prof.stats;
+        return escapeHtml(names[p.dataIndex]) + '<br/>Median: ' + escapeHtml(F.fmtTooltip(s.med)) +
+          '<br/>Q1\u2013Q3: ' + escapeHtml(F.fmtTooltip(s.q1)) + ' \u2013 ' + escapeHtml(F.fmtTooltip(s.q3)) +
+          '<br/>n = ' + prof.n;
+      } },
+      series: series
+    };
+  },
+  onClick: function(panel, params){
+    if (!params || params.componentType !== 'series') return false;
+    var name = params.name;
+    if (!name) return false;
+    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    return true;
+  }
+});
+
+Object.keys(PLUGINS).forEach(function(k){ CHART_TYPES.push({ value: k, label: PLUGINS[k].label }); });
+
 
 function optionsHtml(cols, selected){
   return cols.map(function(c){
@@ -3047,6 +3902,7 @@ UI.setPanelEmptyState = function(panel, isEmpty){
 };
 
 function relevantNumericFields(spec){
+  if (PLUGINS[spec.type]) return PLUGINS[spec.type].numericFields(spec);
   if (spec.type === 'histogram') return [spec.xField];
   if (spec.type === 'scatter') return [spec.xField, spec.yField];
   return [spec.yField];
@@ -3106,6 +3962,15 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
   UI.panels = (payload.panels || []).map(function(pd){
     return { id: pd.id, spec: pd.spec, chart: null, el: null };
   });
+  var hadUnknownType = false;
+  UI.panels.forEach(function(p){
+    if (p.spec && !BUILTIN_TYPES[p.spec.type] && !PLUGINS[p.spec.type]) {
+      var fallback = Spec.autoRecommend(store.columns);
+      if (fallback) p.spec = fallback;
+      hadUnknownType = true;
+    }
+  });
+  if (hadUnknownType) UI.toast('One chart used a type this version doesn\u2019t have');
   if (!UI.panels.length) {
     var spec = Spec.autoRecommend(store.columns);
     if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in that file.'); return false; }
@@ -3212,6 +4077,11 @@ UI.wireChartInteractions = function(panel){
   panel.chart.on('click', function(params){
     var spec = panel.spec;
     if (!spec) return;
+    var _p = PLUGINS[spec.type];
+    if (_p) {
+      if (_p.onClick && _p.onClick(panel, params)) { UI.refreshAllPanels(); UI.pushCommand(); }
+      return;
+    }
     if ((spec.type === 'bar' || spec.type === 'donut') && params.name !== undefined) {
       var otherLabels = params.data && typeof params.data === 'object' ? params.data.otherLabels : null;
       if (otherLabels) Filters.add(panel.id, spec.xField, 'in', otherLabels);
@@ -3767,33 +4637,41 @@ UI.exportCSV = function(panel){
   var lines;
   function seriesValue(v){ return (v && typeof v === 'object') ? v.value : v; }
   function csvField(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
-  if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
-    lines = ['label,value'];
-    opt.series[0].data.forEach(function(d){
-      lines.push(csvField(d.name) + ',' + seriesValue(d));
-    });
-  } else if (opt.series && opt.series[0] && opt.series[0].type === 'scatter') {
-    lines = [titleCase(panel.spec.xField) + ',' + titleCase(panel.spec.yField)];
-    opt.series[0].data.forEach(function(p){ lines.push(p[0] + ',' + p[1]); });
-  } else if ((opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') || (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category')) {
-    var axisIsX = !!(opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category');
-    var catLabels = axisIsX ? opt.xAxis[0].data : opt.yAxis[0].data;
-    var seriesList = opt.series || [];
-    if (seriesList.length > 1) {
-      lines = ['label,' + seriesList.map(function(s){ return csvField(s.name || 'value'); }).join(',')];
-      for (var k=0;k<catLabels.length;k++){
-        var row = [csvField(catLabels[k])];
-        for (var si=0;si<seriesList.length;si++) row.push(seriesValue(seriesList[si].data[k]));
-        lines.push(row.join(','));
-      }
-    } else {
-      lines = ['label,value'];
-      var soloData = seriesList[0] ? seriesList[0].data : [];
-      for (var i=0;i<catLabels.length;i++) lines.push(csvField(catLabels[i]) + ',' + seriesValue(soloData[i]));
-    }
-  } else {
+  var _p = PLUGINS[panel.spec.type];
+  if (_p && _p.csv) lines = _p.csv(panel, opt);
+  if (!lines && _p) {
     UI.toast('CSV export isn\u2019t available for this chart type.');
     return;
+  }
+  if (!lines) {
+    if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
+      lines = ['label,value'];
+      opt.series[0].data.forEach(function(d){
+        lines.push(csvField(d.name) + ',' + seriesValue(d));
+      });
+    } else if (opt.series && opt.series[0] && opt.series[0].type === 'scatter') {
+      lines = [titleCase(panel.spec.xField) + ',' + titleCase(panel.spec.yField)];
+      opt.series[0].data.forEach(function(p){ lines.push(p[0] + ',' + p[1]); });
+    } else if ((opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') || (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category')) {
+      var axisIsX = !!(opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category');
+      var catLabels = axisIsX ? opt.xAxis[0].data : opt.yAxis[0].data;
+      var seriesList = opt.series || [];
+      if (seriesList.length > 1) {
+        lines = ['label,' + seriesList.map(function(s){ return csvField(s.name || 'value'); }).join(',')];
+        for (var k=0;k<catLabels.length;k++){
+          var row = [csvField(catLabels[k])];
+          for (var si=0;si<seriesList.length;si++) row.push(seriesValue(seriesList[si].data[k]));
+          lines.push(row.join(','));
+        }
+      } else {
+        lines = ['label,value'];
+        var soloData = seriesList[0] ? seriesList[0].data : [];
+        for (var i=0;i<catLabels.length;i++) lines.push(csvField(catLabels[i]) + ',' + seriesValue(soloData[i]));
+      }
+    } else {
+      UI.toast('CSV export isn\u2019t available for this chart type.');
+      return;
+    }
   }
   var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   var url = URL.createObjectURL(blob);
@@ -3806,7 +4684,7 @@ UI.exportDrawJSON = function(){
   var state = Store.get();
   if (!state.rawRows || !state.rawFields) { UI.toast('Nothing to export yet.'); return; }
   var payload = {
-    version: 1,
+    version: DRAW_SCHEMA,
     sourceName: state.sourceName,
     fields: state.rawFields,
     rows: state.rawRows,
@@ -3880,6 +4758,8 @@ UI.renderInspector = function(){
   var dateCols = usable.filter(function(c){ return c.type === 'date'; });
   var numCols = usable.filter(function(c){ return c.type === 'number'; });
   var catCols = Spec.categoricalColumns(usable);
+  var colsBag = { usable: usable, num: numCols, date: dateCols, cat: catCols };
+  var H = { fieldRow: fieldRow, fieldRowWithNone: fieldRowWithNone, fieldRowWithCount: fieldRowWithCount, aggRow: aggRow, sortRow: sortRow, grainRow: grainRow, toggleRow: toggleRow, rangeRow: rangeRow, optionsHtml: optionsHtml };
 
   var recommendedType = (function(){
     var top = Spec.candidates(columns)[0];
@@ -3888,7 +4768,8 @@ UI.renderInspector = function(){
 
   var typeAvailable = {};
   CHART_TYPES.forEach(function(t){
-    if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0;
+    if (PLUGINS[t.value]) typeAvailable[t.value] = PLUGINS[t.value].needs.every(Caps.supports) && PLUGINS[t.value].available(colsBag);
+    else if (t.value === 'line' || t.value === 'area') typeAvailable[t.value] = dateCols.length > 0;
     else if (t.value === 'bar' || t.value === 'donut') typeAvailable[t.value] = catCols.length > 0;
     else if (t.value === 'scatter') typeAvailable[t.value] = numCols.length >= 2 || (dateCols.length >= 1 && numCols.length >= 1);
     else if (t.value === 'histogram') typeAvailable[t.value] = numCols.length >= 1;
@@ -3903,26 +4784,45 @@ UI.renderInspector = function(){
     scatter: 'Needs two number columns, or a date and a number column',
     histogram: 'Needs a number column'
   };
+  Object.keys(PLUGINS).forEach(function(k){ typeUnavailableReason[k] = PLUGINS[k].reason; });
 
-  var typeHtml = '<h3>Data</h3><div class="type-gallery" id="typeGallery">' +
-    CHART_TYPES.map(function(t){
-      var isSelected = t.value === spec.type;
-      var isAvailable = typeAvailable[t.value];
-      var classes = 'type-tile' + (isSelected ? ' is-selected' : '') + (isAvailable ? '' : ' is-unavailable');
-      var badge = (t.value === recommendedType) ? '<svg class="tile-badge" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>' : '';
-      var iconId = (t.value === 'bar' && spec.seriesField) ? 'i-chart-stacked' : ('i-chart-' + t.value);
-      var titleAttr = isAvailable ? '' : (' title="' + escapeHtml(typeUnavailableReason[t.value] || 'Not available for this data') + '"');
-      var disabledAttr = isAvailable ? '' : ' disabled';
-      return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(t.label) + '" aria-pressed="' + isSelected + '"' + titleAttr + disabledAttr + '>' +
-        badge +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#' + iconId + '"/></svg>' +
-        '<span>' + escapeHtml(t.label) + '</span>' +
-        '</button>';
+  function renderTile(t){
+    var isSelected = t.value === spec.type;
+    var isAvailable = typeAvailable[t.value];
+    var classes = 'type-tile' + (isSelected ? ' is-selected' : '') + (isAvailable ? '' : ' is-unavailable');
+    var badge = (t.value === recommendedType) ? '<svg class="tile-badge" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>' : '';
+    var iconId = (t.value === 'bar' && spec.seriesField) ? 'i-chart-stacked' : ('i-chart-' + t.value);
+    var titleAttr = isAvailable ? '' : (' title="' + escapeHtml(typeUnavailableReason[t.value] || 'Not available for this data') + '"');
+    var disabledAttr = isAvailable ? '' : ' disabled';
+    return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(t.label) + '" aria-pressed="' + isSelected + '"' + titleAttr + disabledAttr + '>' +
+      badge +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#' + iconId + '"/></svg>' +
+      '<span>' + escapeHtml(t.label) + '</span>' +
+      '</button>';
+  }
+
+  var groupOrder = ['core', 'distribution', 'structure'];
+  var groupCaptions = { distribution: 'Distribution', structure: 'Structure' };
+  var byGroup = { core: [], distribution: [], structure: [] };
+  CHART_TYPES.forEach(function(t){
+    var g = PLUGINS[t.value] ? PLUGINS[t.value].group : 'core';
+    (byGroup[g] || (byGroup[g] = [])).push(t);
+  });
+
+  var typeHtml = '<h3>Data</h3><div class="type-gallery-wrap" id="typeGallery">' +
+    groupOrder.map(function(g){
+      var items = byGroup[g] || [];
+      if (g !== 'core') items = items.filter(function(t){ return typeAvailable[t.value]; });
+      if (!items.length) return '';
+      var caption = groupCaptions[g] ? '<h4 class="type-gallery-caption">' + escapeHtml(groupCaptions[g]) + '</h4>' : '';
+      return caption + '<div class="type-gallery" data-group="' + g + '">' + items.map(renderTile).join('') + '</div>';
     }).join('') +
     '</div>';
 
   var fieldsHtml = '';
-  if (spec.type === 'line' || spec.type === 'area') {
+  if (PLUGINS[spec.type]) {
+    fieldsHtml += PLUGINS[spec.type].fields(spec, colsBag, H);
+  } else if (spec.type === 'line' || spec.type === 'area') {
     fieldsHtml += fieldRow('Date field', 'xField', dateCols, spec.xField);
     fieldsHtml += fieldRowWithCount('Value field', 'yField', numCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
@@ -3947,7 +4847,9 @@ UI.renderInspector = function(){
   }
 
   var styleHtml = '';
-  if (spec.type === 'line' || spec.type === 'area') {
+  if (PLUGINS[spec.type]) {
+    styleHtml += PLUGINS[spec.type].style(spec, H);
+  } else if (spec.type === 'line' || spec.type === 'area') {
     styleHtml += toggleRow('Show points', 'showPoints', spec.showPoints !== false);
   } else if (spec.type === 'bar') {
     styleHtml += toggleRow('Show value labels', 'showLabels', !!spec.showLabels);
@@ -3990,7 +4892,7 @@ UI.updateSpecField = function(role, value){
     spec.seriesField = value === '' ? null : value;
   } else if (role === 'grain') {
     spec.grain = value === '' ? null : value;
-  } else if (role === 'pointSize' || role === 'buckets' || role === 'topN') {
+  } else if (role === 'pointSize' || role === 'buckets' || role === 'topN' || role === 'jitterWidth') {
     spec[role] = parseInt(value, 10);
   } else {
     spec[role] = value;
@@ -4015,10 +4917,19 @@ UI.changeChartType = function(newType){
   var dateCols = usable.filter(function(c){ return c.type === 'date'; });
   var numCols = usable.filter(function(c){ return c.type === 'number'; });
   var catCols = Spec.categoricalColumns(usable);
+  var colsBag = { usable: usable, num: numCols, date: dateCols, cat: catCols };
 
   function pick(cols, preferredName){
     var found = preferredName ? cols.filter(function(c){ return c.name === preferredName; })[0] : null;
     return found || cols[0] || null;
+  }
+
+  if (PLUGINS[newType]) {
+    var ns = PLUGINS[newType].makeSpec(old, colsBag);
+    if (!ns) { UI.toast(PLUGINS[newType].reason); return; }
+    if (old && old.titleCustom) { ns.title = old.title; ns.titleCustom = true; }
+    UI.commitSpec(ns);
+    return;
   }
 
   var newSpec = null;
@@ -4063,6 +4974,94 @@ function drainPendingBoot(){
     if (looksLikePastedTable(pendingText)) UI.loadCSVText(pendingText, 'Pasted table');
   }
 }
+
+function __colsBag(ds){
+  var usable = Spec.usableColumnsOrAll(ds.columns);
+  return {
+    usable: usable,
+    num: usable.filter(function(c){ return c.type === 'number'; }),
+    date: usable.filter(function(c){ return c.type === 'date'; }),
+    cat: Spec.categoricalColumns(usable)
+  };
+}
+
+function __builtinSpec(type, ds){
+  var bag = __colsBag(ds);
+  if (type === 'line' || type === 'area') {
+    var d = bag.date[0];
+    if (!d) return null;
+    var v = bag.num[0];
+    var s = v ? Spec.buildTimeSeries(d, v) : Spec.buildTimeSeriesCount(d);
+    s.type = type;
+    s.title = Spec.regenerateTitle(s);
+    return s;
+  }
+  if (type === 'bar' || type === 'donut') {
+    var c = bag.cat[0];
+    if (!c) return null;
+    var v2 = bag.num.filter(function(col){ return col.name !== c.name; })[0];
+    var s2 = v2 ? Spec.buildCategoryNumeric(c, v2) : Spec.buildCategoryCount(c);
+    s2.type = type;
+    s2.title = Spec.regenerateTitle(s2);
+    return s2;
+  }
+  if (type === 'scatter') {
+    var xCands = bag.date.concat(bag.num);
+    var x = xCands[0];
+    if (!x) return null;
+    var yCands = bag.num.filter(function(col){ return col.name !== x.name; });
+    var y = yCands[0];
+    if (!y) return null;
+    return Spec.buildScatter(x, y);
+  }
+  if (type === 'histogram') {
+    var h = bag.num[0];
+    if (!h) return null;
+    return Spec.buildHistogram(h);
+  }
+  return null;
+}
+
+function __selfTestRows(){
+  var regions = ['North America', 'Europe', 'APAC', 'LATAM'];
+  var tiers = [];
+  for (var t = 0; t < 30; t++) tiers.push('Tier ' + (t + 1));
+  var rows = [];
+  var startDay = Date.UTC(2023, 0, 1);
+  var coercionRows = { 50: 1, 120: 1, 200: 1, 280: 1, 350: 1 };
+  for (var i = 0; i < 400; i++){
+    var day = new Date(startDay + Math.floor(i / 4) * 86400000).toISOString().slice(0, 10);
+    var region = regions[i % regions.length];
+    var tier = tiers[i % tiers.length];
+    var revenue = '$' + (1000 + (i * 37) % 9000);
+    var marginVal = ((i % 50) - 25) * 3.2;
+    var margin = coercionRows[i] ? 'n/a' : marginVal.toFixed(2);
+    var qty = (i * 7) % 500;
+    rows.push({ day: day, region: region, tier: tier, revenue: revenue, margin: margin, qty: qty });
+  }
+  return rows;
+}
+
+window.__drawSelfTest = function(){
+  var ds = Data.buildColumnarStore(__selfTestRows(), ['day', 'region', 'tier', 'revenue', 'margin', 'qty']);
+  var results = [], all = CHART_TYPES.map(function(t){ return t.value; });
+  all.forEach(function(type){
+    try {
+      var spec = (PLUGINS[type] ? PLUGINS[type].makeSpec(null, __colsBag(ds)) : __builtinSpec(type, ds));
+      if (!spec) { results.push([type, 'skip', 'unavailable']); return; }
+      var opt = Render.buildOption(spec, ds.columns, null, null);
+      if (!opt || !opt.series) throw new Error('no series');
+      if (!optionHasData(opt, spec)) throw new Error('empty data');
+      if (Spec.regenerateTitle(spec).indexOf('Untitled') === 0) throw new Error('no title');
+      if (!chartAriaSummary(spec, opt)) throw new Error('no aria');
+      results.push([type, 'pass', opt.series.length + ' series']);
+    } catch (e) {
+      results.push([type, 'FAIL', e.message]);
+    }
+  });
+  console.table(results);
+  return results.every(function(r){ return r[1] !== 'FAIL'; });
+};
 
 document.addEventListener('DOMContentLoaded', function(){
   UI.init();
