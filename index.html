@@ -116,7 +116,12 @@ body.is-chart-interacting .grain{display:none;}
   -webkit-backdrop-filter:blur(24px) saturate(1.4);
   border-bottom:1px solid var(--hairline);
   z-index:50;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
 }
+.topbar::-webkit-scrollbar{display:none;}
+.topbar > *{flex-shrink:0;}
 body.is-interacting .topbar{backdrop-filter:none;-webkit-backdrop-filter:none;}
 .wordmark{
   font-family:var(--font-display);
@@ -280,7 +285,7 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
   font-weight:400;
   font-size:20px;
   color:var(--ink);
-  margin:0 40px var(--sp-4) 0;
+  margin:0 148px var(--sp-4) 0;
   padding:2px 6px;
   border-radius:6px;
   cursor:text;
@@ -541,7 +546,7 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
 
 @media (prefers-reduced-transparency: reduce){
   .grain{display:none;}
-  .topbar,.toast,.inspector{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;background:var(--bg-2) !important;}
+  .topbar,.toast,.inspector,.modal{backdrop-filter:none !important;-webkit-backdrop-filter:none !important;background:var(--bg-2) !important;}
 }
 @media (prefers-reduced-motion: reduce){
   *{transition-duration:.001ms !important;animation-duration:.001ms !important;}
@@ -1144,35 +1149,82 @@ var Store = (function(){
 })();
 
 var ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i;
+var ISO_DATE_ONLY_CAPTURE_RE = /^(\d{4})-(\d{2})-(\d{2})/;
 var ISO_YEAR_MONTH_RE = /^\d{4}-\d{2}$/;
 var SLASH_DATE_RE = /^\d{1,2}\/\d{1,2}\/\d{2,4}$/;
+var METRIC_NAME_EXCLUDE_RE = /rate|ratio|percent|avg|average|score|age|temp|price|per[_\s]|rank|year|qty|quantity|count|amount|total|sum|weight|height|length|width|duration|distance|speed|level|grade|size/i;
 
-function cleanNumericString(v){
+function isValidYMD(y, m, d){
+  var dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === (m - 1) && dt.getUTCDate() === d;
+}
+function cleanNumericString(v, locale){
   var s = String(v).trim();
   var neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1).trim(); }
   s = s.replace(/^[$\u20ac\u00a3]\s*/, '').replace(/\s*[$\u20ac\u00a3]$/, '').replace(/%$/, '');
-  s = s.replace(/[,\s']/g, '');
+  if (locale === 'eu') {
+    s = s.replace(/[.\s\u00a0']/g, '');
+    s = s.replace(',', '.');
+  } else {
+    s = s.replace(/[,\s\u00a0']/g, '');
+  }
   if (neg && s.charAt(0) !== '-') s = '-' + s;
   return s;
 }
-function looksNumeric(v){
+function looksNumeric(v, locale){
   if (v === '' || v === null || v === undefined) return false;
   if (typeof v === 'number') return isFinite(v);
   if (typeof v === 'bigint') return true;
   if (v instanceof Date) return false;
-  var cleaned = cleanNumericString(v);
+  if (typeof v === 'object') return false;
+  var cleaned = cleanNumericString(v, locale);
   if (cleaned === '' || cleaned === '-') return false;
   return !isNaN(cleaned) && isFinite(cleaned);
 }
-function toNumeric(v){
+function toNumeric(v, locale){
   if (typeof v === 'number') return v;
   if (typeof v === 'bigint') return Number(v);
-  return parseFloat(cleanNumericString(v));
+  return parseFloat(cleanNumericString(v, locale));
+}
+function classifyNumberToken(s){
+  var hasComma = s.indexOf(',') >= 0;
+  var hasDot = s.indexOf('.') >= 0;
+  if (!hasComma && !hasDot) return 'plain';
+  if (hasComma && hasDot) return (s.lastIndexOf(',') > s.lastIndexOf('.')) ? 'eu' : 'us';
+  if (hasComma && !hasDot) {
+    var parts = s.split(',');
+    var last = parts[parts.length - 1];
+    if (parts.length === 2) return (last.length === 3 && /^\d+$/.test(parts[0])) ? 'ambiguous' : 'eu';
+    var allThree = parts.slice(1).every(function(p){ return p.length === 3; });
+    return allThree ? 'us' : 'eu';
+  }
+  var dparts = s.split('.');
+  var dlast = dparts[dparts.length - 1];
+  if (dparts.length === 2) return (dlast.length === 3 && /^\d+$/.test(dparts[0])) ? 'ambiguous' : 'us';
+  var allThreeD = dparts.slice(1).every(function(p){ return p.length === 3; });
+  return allThreeD ? 'eu' : 'us';
+}
+function detectNumberLocale(sampleValues){
+  var usVotes = 0, euVotes = 0;
+  sampleValues.forEach(function(raw){
+    if (typeof raw !== 'string') return;
+    var s = raw.trim();
+    if (/^\(.*\)$/.test(s)) s = s.slice(1, -1).trim();
+    s = s.replace(/^[$\u20ac\u00a3]\s*/, '').replace(/\s*[$\u20ac\u00a3]$/, '').replace(/%$/, '');
+    if (!s || !/[\d,.]/.test(s)) return;
+    var cls = classifyNumberToken(s);
+    if (cls === 'us') usVotes++;
+    else if (cls === 'eu') euVotes++;
+  });
+  if (usVotes > 0 && euVotes > 0) return 'ambiguous';
+  if (euVotes > 0) return 'eu';
+  return 'us';
 }
 function looksDate(v){
   if (v instanceof Date) return !isNaN(v.getTime());
   if (typeof v === 'number' || typeof v === 'bigint') return false;
+  if (v !== null && typeof v === 'object') return false;
   var s = String(v).trim();
   return ISO_DATE_RE.test(s) || ISO_YEAR_MONTH_RE.test(s) || SLASH_DATE_RE.test(s);
 }
@@ -1183,16 +1235,18 @@ function parseDateValue(v, dateOrder){
   }
   var s = String(v).trim();
   if (ISO_DATE_RE.test(s)) {
+    var dm = ISO_DATE_ONLY_CAPTURE_RE.exec(s);
+    if (!dm) return null;
+    var isoY = parseInt(dm[1], 10), isoM = parseInt(dm[2], 10), isoD = parseInt(dm[3], 10);
+    if (!isValidYMD(isoY, isoM, isoD)) return null;
     var hasTime = /[ T]/.test(s);
+    if (!hasTime) return Date.UTC(isoY, isoM - 1, isoD);
     var hasTZ = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
     var t1 = Date.parse(s.replace(' ', 'T'));
     if (isNaN(t1)) return null;
-    if (hasTime) {
-      var dLocal = new Date(t1);
-      if (hasTZ) return Date.UTC(dLocal.getUTCFullYear(), dLocal.getUTCMonth(), dLocal.getUTCDate());
-      return Date.UTC(dLocal.getFullYear(), dLocal.getMonth(), dLocal.getDate());
-    }
-    return t1;
+    var dLocal = new Date(t1);
+    if (hasTZ) return Date.UTC(dLocal.getUTCFullYear(), dLocal.getUTCMonth(), dLocal.getUTCDate());
+    return Date.UTC(dLocal.getFullYear(), dLocal.getMonth(), dLocal.getDate());
   }
   if (ISO_YEAR_MONTH_RE.test(s)) {
     var ymParts = s.split('-');
@@ -1204,13 +1258,15 @@ function parseDateValue(v, dateOrder){
     var m, d;
     if (dateOrder === 'DMY') { d = a; m = b; } else { m = a; d = b; }
     if (y < 100) y += 2000;
-    var t2 = Date.UTC(y, m-1, d);
-    return isNaN(t2) ? null : t2;
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    if (!isValidYMD(y, m, d)) return null;
+    return Date.UTC(y, m - 1, d);
   }
   return null;
 }
 function looksBoolean(v){
   if (typeof v === 'boolean') return true;
+  if (v === null || v === undefined || typeof v === 'object') return false;
   var s = String(v).trim().toLowerCase();
   return s === 'true' || s === 'false';
 }
@@ -1233,30 +1289,95 @@ function detectUnit(sampleValues){
 
 var Data = {};
 
+Data.stringifyCell = function(raw){
+  if (raw === null || raw === undefined) return '';
+  if (raw instanceof Date) return isNaN(raw.getTime()) ? '' : raw.toISOString();
+  if (typeof raw === 'bigint') return String(raw);
+  if (typeof raw === 'object') {
+    try { return JSON.stringify(raw); } catch (err) { return String(raw); }
+  }
+  return String(raw);
+};
+
+Data.makeRow = function(){ return Object.create(null); };
+
+Data.dedupeHeaderNames = function(headerRow){
+  var seen = new Map();
+  return headerRow.map(function(h, i){
+    var name = (h === null || h === undefined || String(h).trim() === '') ? ('Column ' + (i + 1)) : String(h).trim();
+    if (seen.has(name)) {
+      var n = seen.get(name) + 1;
+      seen.set(name, n);
+      return name + ' (' + n + ')';
+    }
+    seen.set(name, 1);
+    return name;
+  });
+};
+
+Data.rowsFromArrays = function(arrayRows){
+  var nonBlank = (arrayRows || []).filter(function(r){
+    return r && r.some(function(cell){ return cell !== null && cell !== undefined && String(cell).trim() !== ''; });
+  });
+  if (!nonBlank.length) return { rows: [], fields: [] };
+  var maxWidth = 0;
+  nonBlank.forEach(function(r){ if (r.length > maxWidth) maxWidth = r.length; });
+  var headerRaw = nonBlank[0];
+  var width = Math.max(maxWidth, headerRaw.length);
+  var padded = [];
+  for (var i = 0; i < width; i++) padded.push(headerRaw[i] !== undefined ? headerRaw[i] : null);
+  var fields = Data.dedupeHeaderNames(padded);
+  var rows = nonBlank.slice(1).map(function(r){
+    var obj = Data.makeRow();
+    for (var fi = 0; fi < fields.length; fi++) obj[fields[fi]] = (r[fi] !== undefined) ? r[fi] : null;
+    return obj;
+  });
+  return { rows: rows, fields: fields };
+};
+
+Data.unionFieldsFromRows = function(rows, sampleLimit){
+  var limit = Math.min(rows.length, sampleLimit || 2000);
+  var seen = new Set();
+  var fields = [];
+  for (var i = 0; i < limit; i++){
+    var row = rows[i];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    var keys = Object.keys(row);
+    for (var k = 0; k < keys.length; k++){
+      if (!seen.has(keys[k])) { seen.add(keys[k]); fields.push(keys[k]); }
+    }
+  }
+  return fields;
+};
+
 function inferColumnType(sampleValues){
   var nonEmptySample = sampleValues.filter(function(v){ return v !== null && v !== undefined && String(v).trim() !== ''; });
   var n = nonEmptySample.length || 1;
+  var numberLocale = detectNumberLocale(nonEmptySample);
   var numCount = 0, dateCount = 0, boolCount = 0;
   nonEmptySample.forEach(function(v){
-    if (looksNumeric(v)) numCount++;
+    if (looksNumeric(v, numberLocale)) numCount++;
     if (looksDate(v)) dateCount++;
     if (looksBoolean(v)) boolCount++;
   });
   var type = 'category';
   if (dateCount / n > 0.9) type = 'date';
-  else if (numCount / n > 0.9) type = 'number';
+  else if (numCount / n > 0.9 && numberLocale !== 'ambiguous') type = 'number';
   else if (boolCount / n > 0.9) type = 'boolean';
   var unit = (type === 'number') ? detectUnit(nonEmptySample) : null;
   var dateOrder = 'MDY';
+  var dateAmbiguous = false;
   if (type === 'date') {
+    var hasSlash = nonEmptySample.some(function(v){ return SLASH_DATE_RE.test(String(v).trim()); });
     var isDMY = nonEmptySample.some(function(v){
       var s = String(v).trim();
       if (!SLASH_DATE_RE.test(s)) return false;
       return parseInt(s.split('/')[0], 10) > 12;
     });
     if (isDMY) dateOrder = 'DMY';
+    else if (hasSlash) dateAmbiguous = true;
   }
-  return { type: type, dateOrder: dateOrder, unit: unit };
+  return { type: type, dateOrder: dateOrder, dateAmbiguous: dateAmbiguous, unit: unit, numberLocale: numberLocale };
 }
 
 Data.buildColumnarStore = function(rows, fieldOrder){
@@ -1310,18 +1431,18 @@ Data.buildColumnarStore = function(rows, fieldOrder){
     var row = rows[ri];
     for (var cj = 0; cj < fieldCount; cj++){
       var raw = row[rawFields[cj]];
-      var isEmpty = (raw === null || raw === undefined || String(raw).trim() === '');
+      var isEmpty = (raw === null || raw === undefined || Data.stringifyCell(raw).trim() === '');
       var t = colType[cj].type;
       if (isEmpty) {
         nullCounts[cj]++;
         encodedArr[cj][ri] = (t === 'number' || t === 'date') ? NaN : -1;
         continue;
       }
-      var trimmed = String(raw).trim();
+      var trimmed = Data.stringifyCell(raw).trim();
       if (t === 'number') {
         uniqueSets[cj].add(trimmed);
-        if (looksNumeric(raw)) {
-          var nv = toNumeric(raw);
+        if (looksNumeric(raw, colType[cj].numberLocale)) {
+          var nv = toNumeric(raw, colType[cj].numberLocale);
           encodedArr[cj][ri] = nv;
           if (numColAllInt[cj]) {
             if (!Number.isInteger(nv)) { numColAllInt[cj] = false; }
@@ -1340,17 +1461,19 @@ Data.buildColumnarStore = function(rows, fieldOrder){
         var tv = parseDateValue(raw, colType[cj].dateOrder);
         encodedArr[cj][ri] = (tv === null) ? NaN : tv;
       } else {
-        var idx = levelIndexArr[cj].get(trimmed);
+        var levelKey = (t === 'boolean') ? (trimmed.toLowerCase() === 'true' ? 'true' : 'false') : trimmed;
+        var idx = levelIndexArr[cj].get(levelKey);
         if (idx === undefined) {
           idx = levelsArr[cj].length;
-          levelsArr[cj].push(trimmed);
-          levelIndexArr[cj].set(trimmed, idx);
+          levelsArr[cj].push(levelKey);
+          levelIndexArr[cj].set(levelKey, idx);
         }
         encodedArr[cj][ri] = idx;
       }
     }
   }
 
+  var notes = [];
   var columns = fields.map(function(name, idx){
     var type = colType[idx].type;
     var total = (rowCount - nullCounts[idx]) || 1;
@@ -1361,9 +1484,13 @@ Data.buildColumnarStore = function(rows, fieldOrder){
     var idLike = type !== 'number' && total > 20 && (uniqueCount / total) > 0.95;
     if (type === 'number' && total > 20 && (uniqueCount / total) > 0.95 && numColAllInt[idx]) {
       var nameLooksId = /^(id|_id|uuid|guid|key|index|row|no|num)$|(^|[_\s])id$/i.test(String(name).trim());
+      var looksLikeMetric = METRIC_NAME_EXCLUDE_RE.test(String(name).trim());
       var range = numColMax[idx] - numColMin[idx] + 1;
       var nearContiguous = range > 0 && (uniqueCount / range) >= 0.9;
-      idLike = nameLooksId || nearContiguous;
+      idLike = nameLooksId || (nearContiguous && !looksLikeMetric);
+    }
+    if (type === 'date' && colType[idx].dateAmbiguous) {
+      notes.push('\u201c' + name + '\u201d has ambiguous day/month dates and was read as month/day/year.');
     }
     var result = {
       name: name,
@@ -1381,7 +1508,7 @@ Data.buildColumnarStore = function(rows, fieldOrder){
   var columnsByName = new Map();
   columns.forEach(function(c){ columnsByName.set(c.name, c); });
   columns.byName = columnsByName;
-  return { rowCount: rowCount, columns: columns };
+  return { rowCount: rowCount, columns: columns, notes: notes };
 };
 
 Data.fromCSVText = function(text, onDone){
@@ -1390,9 +1517,12 @@ Data.fromCSVText = function(text, onDone){
     return;
   }
   Papa.parse(text, {
-    header: true,
+    header: false,
     skipEmptyLines: true,
-    complete: function(res){ onDone({ ok: true, rows: res.data, fields: res.meta.fields }); },
+    complete: function(res){
+      var built = Data.rowsFromArrays(res.data);
+      onDone({ ok: true, rows: built.rows, fields: built.fields });
+    },
     error: function(err){ onDone({ ok: false, message: 'Couldn\u2019t read that data.' }); }
   });
 };
@@ -1400,10 +1530,13 @@ Data.fromCSVText = function(text, onDone){
 
 Data.fromFileMainThread = function(file, onDone){
   Papa.parse(file, {
-    header: true,
+    header: false,
     skipEmptyLines: true,
     chunkSize: 1024 * 1024,
-    complete: function(res){ onDone({ ok: true, rows: res.data, fields: res.meta.fields }); },
+    complete: function(res){
+      var built = Data.rowsFromArrays(res.data);
+      onDone({ ok: true, rows: built.rows, fields: built.fields });
+    },
     error: function(err){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); }
   });
 };
@@ -1416,35 +1549,80 @@ Data.fromDelimitedFile = function(file, onDone){
   if (file.size > 5 * 1024 * 1024) {
     try {
       var papaUrl = new URL('./vendor/papaparse.min.js', document.baseURI).href;
-      var workerSrc = 'importScripts(' + JSON.stringify(papaUrl) + ');self.onmessage=function(e){var rows=[],fields=null;Papa.parse(e.data,{header:true,skipEmptyLines:true,chunkSize:1024*1024,chunk:function(res){if(!fields)fields=res.meta.fields;Array.prototype.push.apply(rows,res.data);self.postMessage({progress:true});},complete:function(){self.postMessage({ok:true,rows:rows,fields:fields});},error:function(err){self.postMessage({ok:false,message:\'Couldn\\u2019t read that file.\'});}});};';
+      var workerSrc = [
+        'importScripts(' + JSON.stringify(papaUrl) + ');',
+        'function dedupeHeaderNames(headerRow){',
+        '  var seen = {};',
+        '  return headerRow.map(function(h, i){',
+        '    var name = (h === null || h === undefined || String(h).trim() === \'\') ? (\'Column \' + (i + 1)) : String(h).trim();',
+        '    if (Object.prototype.hasOwnProperty.call(seen, name)) { var n = seen[name] + 1; seen[name] = n; return name + \' (\' + n + \')\'; }',
+        '    seen[name] = 1;',
+        '    return name;',
+        '  });',
+        '}',
+        'self.onmessage = function(e){',
+        '  var rawRows = [];',
+        '  Papa.parse(e.data, {',
+        '    header: false,',
+        '    skipEmptyLines: true,',
+        '    chunkSize: 1024 * 1024,',
+        '    chunk: function(res){ Array.prototype.push.apply(rawRows, res.data); self.postMessage({ progress: true }); },',
+        '    complete: function(){',
+        '      try {',
+        '        var nonBlank = rawRows.filter(function(r){ return r && r.some(function(c){ return c !== null && c !== undefined && String(c).trim() !== \'\'; }); });',
+        '        if (!nonBlank.length) { self.postMessage({ ok: true, rows: [], fields: [] }); return; }',
+        '        var maxWidth = 0;',
+        '        nonBlank.forEach(function(r){ if (r.length > maxWidth) maxWidth = r.length; });',
+        '        var headerRaw = nonBlank[0];',
+        '        var width = Math.max(maxWidth, headerRaw.length);',
+        '        var padded = [];',
+        '        for (var i = 0; i < width; i++) padded.push(headerRaw[i] !== undefined ? headerRaw[i] : null);',
+        '        var fields = dedupeHeaderNames(padded);',
+        '        var rows = nonBlank.slice(1).map(function(r){',
+        '          var obj = Object.create(null);',
+        '          for (var fi = 0; fi < fields.length; fi++) obj[fields[fi]] = (r[fi] !== undefined ? r[fi] : null);',
+        '          return obj;',
+        '        });',
+        '        self.postMessage({ ok: true, rows: rows, fields: fields });',
+        '      } catch (err) {',
+        '        self.postMessage({ ok: false, message: \'Couldn\\u2019t read that file.\' });',
+        '      }',
+        '    },',
+        '    error: function(err){ self.postMessage({ ok: false, message: \'Couldn\\u2019t read that file.\' }); }',
+        '  });',
+        '};'
+      ].join('\n');
       var blob = new Blob([workerSrc], { type: 'application/javascript' });
-      var worker = new Worker(URL.createObjectURL(blob));
+      var workerUrl = URL.createObjectURL(blob);
+      var worker = new Worker(workerUrl);
       var settled = false;
       var watchdogId = null;
+      var finish = function(result){
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdogId);
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        onDone(result);
+      };
+      var fallback = function(){
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdogId);
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        Data.fromFileMainThread(file, onDone);
+      };
       var armWatchdog = function(ms){
         clearTimeout(watchdogId);
-        watchdogId = setTimeout(function(){
-          if (settled) return;
-          settled = true;
-          worker.terminate();
-          Data.fromFileMainThread(file, onDone);
-        }, ms);
+        watchdogId = setTimeout(fallback, ms);
       };
       worker.onmessage = function(e){
         if (settled) return;
         if (e.data && e.data.progress) { armWatchdog(5000); return; }
-        settled = true;
-        clearTimeout(watchdogId);
-        worker.terminate();
-        onDone(e.data);
+        finish(e.data);
       };
-      worker.onerror = function(){
-        if (settled) return;
-        settled = true;
-        clearTimeout(watchdogId);
-        worker.terminate();
-        Data.fromFileMainThread(file, onDone);
-      };
+      worker.onerror = fallback;
       armWatchdog(8000);
       worker.postMessage(file);
       return;
@@ -1502,6 +1680,11 @@ Data.fromXLSXFile = function(file, onDone){
 Data.extractSheet = function(workbook, sheetName){
   var sheet = workbook.Sheets[sheetName];
   var raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+  var isBlankRow = function(r){
+    return !(r || []).some(function(c){ return c !== null && c !== undefined && String(c).trim() !== ''; });
+  };
+  raw = raw.filter(function(r){ return !isBlankRow(r); });
+  if (!raw.length) return { rows: [], fields: [], note: null };
   var headerRowIdx = 0;
   if (raw.length > 1) {
     var countNonEmpty = function(r){
@@ -1509,12 +1692,17 @@ Data.extractSheet = function(workbook, sheetName){
     };
     var row0NonEmpty = countNonEmpty(raw[0]);
     var row1NonEmpty = countNonEmpty(raw[1]);
-    if (row0NonEmpty === 1 && row1NonEmpty > row0NonEmpty) headerRowIdx = 1;
+    var looksLikeTitleRow = row0NonEmpty === 1 && row1NonEmpty >= 4 && row1NonEmpty >= row0NonEmpty * 4;
+    if (looksLikeTitleRow) headerRowIdx = 1;
   }
   var headerRow = raw[headerRowIdx] || [];
+  var maxWidth = headerRow.length;
+  raw.slice(headerRowIdx + 1).forEach(function(r){ if (r && r.length > maxWidth) maxWidth = r.length; });
+  var paddedHeader = [];
+  for (var i = 0; i < maxWidth; i++) paddedHeader.push(headerRow[i] !== undefined ? headerRow[i] : null);
   var seen = new Map();
   var dupeNames = [];
-  var fields = headerRow.map(function(h, i){
+  var fields = paddedHeader.map(function(h, i){
     var name = (h === null || h === undefined || String(h).trim() === '')
       ? 'Column ' + (i + 1)
       : String(h).trim();
@@ -1529,7 +1717,7 @@ Data.extractSheet = function(workbook, sheetName){
     return name;
   });
   var rows = raw.slice(headerRowIdx + 1).map(function(r){
-    var obj = {};
+    var obj = Data.makeRow();
     fields.forEach(function(f, i){ obj[f] = (r[i] === undefined) ? null : r[i]; });
     return obj;
   });
@@ -1580,9 +1768,22 @@ Data.fromParquetFile = function(file, onDone){
     var compressors = hyparquetCompressorsGlobal.compressors;
     var buf = Data.asyncBufferFromFile(file);
     parquetReadObjects({ file: buf, compressors: compressors })
-      .then(function(rows){
-        if (!rows.length) { onDone({ ok: false, message: 'That Parquet file doesn\u2019t have any rows to chart.' }); return; }
-        var fields = Object.keys(rows[0]);
+      .then(function(rawRows){
+        if (!rawRows.length) { onDone({ ok: false, message: 'That Parquet file doesn\u2019t have any rows to chart.' }); return; }
+        var rows = rawRows.map(function(row){
+          var out = Data.makeRow();
+          var keys = Object.keys(row);
+          for (var i = 0; i < keys.length; i++){
+            var v = row[keys[i]];
+            if (typeof v === 'bigint') {
+              out[keys[i]] = (v >= Number.MIN_SAFE_INTEGER && v <= Number.MAX_SAFE_INTEGER) ? Number(v) : v.toString();
+            } else {
+              out[keys[i]] = v;
+            }
+          }
+          return out;
+        });
+        var fields = Data.unionFieldsFromRows(rows, 2000);
         onDone({ ok: true, rows: rows, fields: fields });
       })
       .catch(function(err){
@@ -1598,11 +1799,18 @@ Data.fromJSONFile = function(file, onDone){
     try { parsed = JSON.parse(reader.result); }
     catch (err) { onDone({ ok: false, message: 'That JSON file isn\u2019t valid JSON.' }); return; }
     var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.rows) ? parsed.rows : null);
-    if (!rows || !rows.length || typeof rows[0] !== 'object' || rows[0] === null || Array.isArray(rows[0])) {
+    if (!rows || !rows.length) {
       onDone({ ok: false, message: 'Draw expects a JSON file that\u2019s an array of row objects.' });
       return;
     }
-    onDone({ ok: true, rows: rows, fields: Object.keys(rows[0]) });
+    var validRows = rows.filter(function(r){ return r && typeof r === 'object' && !Array.isArray(r); });
+    if (!validRows.length) {
+      onDone({ ok: false, message: 'Draw expects a JSON file that\u2019s an array of row objects.' });
+      return;
+    }
+    var fields = Data.unionFieldsFromRows(validRows, 2000);
+    var note = (validRows.length !== rows.length) ? 'Some entries weren\u2019t row objects and were skipped.' : null;
+    onDone({ ok: true, rows: validRows, fields: fields, note: note });
   };
   reader.onerror = function(){ onDone({ ok: false, message: 'Couldn\u2019t read ' + file.name + '.' }); };
   reader.readAsText(file);
@@ -1981,13 +2189,17 @@ Spec.applyTopN = function(rows, n, aggregation){
   return top;
 };
 
-Spec.reorderByMode = function(labels, valuesByLabel, sortMode, firstSeenOrder){
+Spec.reorderByMode = function(labels, valuesByLabel, sortMode, firstSeenOrder, numericLabels){
   var hasOther = labels.indexOf('Other') >= 0;
   var base = hasOther ? labels.filter(function(l){ return l !== 'Other'; }) : labels.slice();
   if (sortMode === 'value-asc') {
     base.sort(function(a,b){ return (valuesByLabel[a]||0) - (valuesByLabel[b]||0); });
   } else if (sortMode === 'label') {
-    base.sort(function(a,b){ return String(a).localeCompare(String(b)); });
+    if (numericLabels) {
+      base.sort(function(a,b){ return parseFloat(a) - parseFloat(b); });
+    } else {
+      base.sort(function(a,b){ return String(a).localeCompare(String(b)); });
+    }
   } else if (sortMode === 'first-seen' && firstSeenOrder && firstSeenOrder.length) {
     var seenIdx = new Map();
     firstSeenOrder.forEach(function(l, i){ if (!seenIdx.has(l)) seenIdx.set(l, i); });
@@ -2007,7 +2219,9 @@ Spec.categoryRows = function(columns, catFieldName, numFieldName, aggregation, m
   if (sortMode && sortMode !== 'value-desc') {
     var valuesByLabel = {};
     rows.forEach(function(r){ valuesByLabel[r.label] = r.value; });
-    var orderedLabels = Spec.reorderByMode(rows.map(function(r){ return r.label; }), valuesByLabel, sortMode, firstSeen);
+    var catColForSort = findColumn(columns, catFieldName);
+    var isNumericCat = !!(catColForSort && catColForSort.type === 'number');
+    var orderedLabels = Spec.reorderByMode(rows.map(function(r){ return r.label; }), valuesByLabel, sortMode, firstSeen, isNumericCat);
     var byLabel = {};
     rows.forEach(function(r){ byLabel[r.label] = r; });
     rows = orderedLabels.map(function(l){ return byLabel[l]; });
@@ -2060,6 +2274,7 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
   var seriesCol = findColumn(columns, seriesFieldName);
   var cellSum = new Map(), cellCount = new Map();
   var catTotal = new Map(), serTotal = new Map();
+  var catCount = new Map(), serCount = new Map();
   var catFirstSeen = [];
   for (var j=0;j<n;j++){
     if (mask && !mask[j]) continue;
@@ -2070,25 +2285,32 @@ Spec.groupByCategory = function(columns, catFieldName, numFieldName, aggregation
     var v2 = numCol ? numCol.values[j] : 1;
     if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
     var vv = isNaN(v2) ? 0 : v2;
-    var key = catLabel + '\u0000' + serLabel;
     if (!catTotal.has(catLabel)) catFirstSeen.push(catLabel);
-    cellSum.set(key, (cellSum.get(key) || 0) + vv);
-    cellCount.set(key, (cellCount.get(key) || 0) + 1);
+    if (!cellSum.has(catLabel)) { cellSum.set(catLabel, new Map()); cellCount.set(catLabel, new Map()); }
+    var sumRow = cellSum.get(catLabel), countRow = cellCount.get(catLabel);
+    sumRow.set(serLabel, (sumRow.get(serLabel) || 0) + vv);
+    countRow.set(serLabel, (countRow.get(serLabel) || 0) + 1);
     catTotal.set(catLabel, (catTotal.get(catLabel) || 0) + vv);
     serTotal.set(serLabel, (serTotal.get(serLabel) || 0) + vv);
+    catCount.set(catLabel, (catCount.get(catLabel) || 0) + 1);
+    serCount.set(serLabel, (serCount.get(serLabel) || 0) + 1);
   }
 
-  var catNames = Array.from(catTotal.keys()).sort(function(a,b){ return catTotal.get(b) - catTotal.get(a); });
-  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
+  var catRankBasis = (aggregation === 'count') ? catCount : catTotal;
+  var serRankBasis = (aggregation === 'count') ? serCount : serTotal;
+  var catNames = Array.from(catTotal.keys()).sort(function(a,b){ return catRankBasis.get(b) - catRankBasis.get(a); });
+  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serRankBasis.get(b) - serRankBasis.get(a); });
   var catCap = collapseTopN(catNames, catTopN || 12);
   var serCap = collapseTopN(serNames, serTopN || 6);
 
   function cellValue(rawCats, rawSers){
     var sum = 0, count = 0;
     for (var a=0;a<rawCats.length;a++){
+      var sumRow2 = cellSum.get(rawCats[a]);
+      var countRow2 = cellCount.get(rawCats[a]);
+      if (!sumRow2) continue;
       for (var b=0;b<rawSers.length;b++){
-        var k = rawCats[a] + '\u0000' + rawSers[b];
-        if (cellSum.has(k)) { sum += cellSum.get(k); count += cellCount.get(k); }
+        if (sumRow2.has(rawSers[b])) { sum += sumRow2.get(rawSers[b]); count += countRow2.get(rawSers[b]); }
       }
     }
     if (aggregation === 'avg') return count ? sum / count : 0;
@@ -2137,14 +2359,28 @@ function quarterKey(ms){
   var q = Math.floor(d.getUTCMonth() / 3) + 1;
   return d.getUTCFullYear() + '-Q' + q;
 }
-function allBucketKeysInRange(minT, maxT, keyFn){
+function allBucketKeysInRange(minT, maxT, keyFn, grain){
+  var MAX_BUCKETS = 5000;
   var keys = [];
   var seen = new Set();
-  var DAY_MS = 86400000;
-  for (var t = minT; t <= maxT; t += DAY_MS) {
-    var k = keyFn(t);
-    if (!seen.has(k)) { seen.add(k); keys.push(k); }
+  var cur;
+  if (grain === 'month' || grain === 'quarter') {
+    var d0 = new Date(minT);
+    cur = new Date(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), 1));
+  } else {
+    cur = new Date(minT);
   }
+  var guard = 0;
+  while (cur.getTime() <= maxT && guard <= MAX_BUCKETS) {
+    var k = keyFn(cur.getTime());
+    if (!seen.has(k)) { seen.add(k); keys.push(k); }
+    if (grain === 'week') cur = new Date(cur.getTime() + 7 * 86400000);
+    else if (grain === 'month') cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 1, 1));
+    else if (grain === 'quarter') cur = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() + 3, 1));
+    else cur = new Date(cur.getTime() + 86400000);
+    guard++;
+  }
+  if (guard > MAX_BUCKETS) { keys.truncated = true; return keys; }
   var lastKey = keyFn(maxT);
   if (!seen.has(lastKey)) keys.push(lastKey);
   return keys;
@@ -2205,7 +2441,7 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
       if (tj < visibleMinT) visibleMinT = tj;
       if (tj > visibleMaxT) visibleMaxT = tj;
     }
-    var keys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain]) : [];
+    var keys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain], effectiveGrain) : [];
     return keys.map(function(k){
       var value;
       if (!sums.has(k)) value = (aggregation === 'avg') ? null : 0;
@@ -2218,7 +2454,7 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
 
   var seriesCol = findColumn(columns, seriesFieldName);
   var cellSum = new Map(), cellCount = new Map();
-  var serTotal = new Map();
+  var serTotal = new Map(), serCount = new Map();
   visibleMinT = Infinity; visibleMaxT = -Infinity;
   for (var m=0;m<n;m++){
     if (mask && !mask[m]) continue;
@@ -2232,22 +2468,28 @@ Spec.groupByDate = function(columns, dateFieldName, numFieldName, aggregation, m
     var v2 = numCol ? numCol.values[m] : 1;
     if (numCol && aggregation !== 'count' && isNaN(v2)) continue;
     var vv = isNaN(v2) ? 0 : v2;
-    var cellKey = dk + '\u0000' + serLabel;
-    cellSum.set(cellKey, (cellSum.get(cellKey) || 0) + vv);
-    cellCount.set(cellKey, (cellCount.get(cellKey) || 0) + 1);
+    if (!cellSum.has(dk)) { cellSum.set(dk, new Map()); cellCount.set(dk, new Map()); }
+    var dSumRow = cellSum.get(dk), dCountRow = cellCount.get(dk);
+    dSumRow.set(serLabel, (dSumRow.get(serLabel) || 0) + vv);
+    dCountRow.set(serLabel, (dCountRow.get(serLabel) || 0) + 1);
     serTotal.set(serLabel, (serTotal.get(serLabel) || 0) + vv);
+    serCount.set(serLabel, (serCount.get(serLabel) || 0) + 1);
   }
 
-  var dateKeys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain]) : [];
-  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serTotal.get(b) - serTotal.get(a); });
+  var dateKeys = isFinite(visibleMinT) ? allBucketKeysInRange(visibleMinT, visibleMaxT, keyFnByGrain[effectiveGrain], effectiveGrain) : [];
+  var serRankBasisD = (aggregation === 'count') ? serCount : serTotal;
+  var serNames = Array.from(serTotal.keys()).sort(function(a,b){ return serRankBasisD.get(b) - serRankBasisD.get(a); });
   var serCap = collapseTopN(serNames, 6);
   var finalSerNames = serCap.top.concat(serCap.hasOther ? ['Other'] : []);
 
   function cellValue(dateKey, rawSers){
     var sum = 0, count = 0;
-    for (var b=0;b<rawSers.length;b++){
-      var k = dateKey + '\u0000' + rawSers[b];
-      if (cellSum.has(k)) { sum += cellSum.get(k); count += cellCount.get(k); }
+    var sumRow = cellSum.get(dateKey);
+    var countRow = cellCount.get(dateKey);
+    if (sumRow) {
+      for (var b=0;b<rawSers.length;b++){
+        if (sumRow.has(rawSers[b])) { sum += sumRow.get(rawSers[b]); count += countRow.get(rawSers[b]); }
+      }
     }
     if (aggregation === 'avg') return count ? sum / count : null;
     if (aggregation === 'count') return count;
@@ -2302,7 +2544,7 @@ Filters.maskFor = function(panelId){
   return Filters.list.length ? (Filters._masks[panelId] || null) : null;
 };
 
-Filters.add = function(panelId, field, kind, payload){
+Filters.toggleDiscrete = function(panelId, field, kind, payload){
   var idx = -1;
   for (var i = 0; i < Filters.list.length; i++){
     var f = Filters.list[i];
@@ -2318,6 +2560,24 @@ Filters.add = function(panelId, field, kind, payload){
   }
   if (replaceIdx >= 0) Filters.list.splice(replaceIdx, 1, { panelId: panelId, field: field, kind: kind, payload: payload });
   else Filters.list.push({ panelId: panelId, field: field, kind: kind, payload: payload });
+};
+
+Filters.upsertRange = function(panelId, field, payload){
+  var idx = -1;
+  for (var i = 0; i < Filters.list.length; i++){
+    if (Filters.list[i].panelId === panelId && Filters.list[i].field === field) { idx = i; break; }
+  }
+  var entry = { panelId: panelId, field: field, kind: 'range', payload: payload };
+  if (idx >= 0) Filters.list.splice(idx, 1, entry);
+  else Filters.list.push(entry);
+};
+
+Filters.remove = function(panelId, field){
+  var idx = -1;
+  for (var i = 0; i < Filters.list.length; i++){
+    if (Filters.list[i].panelId === panelId && Filters.list[i].field === field) { idx = i; break; }
+  }
+  if (idx >= 0) Filters.list.splice(idx, 1);
 };
 
 Filters.removeAt = function(index){
@@ -2386,6 +2646,19 @@ Persistence.clearDataset = function(){
       tx.onerror = function(){ reject(tx.error); };
     });
   }).catch(function(){});
+};
+
+Persistence._writeQueue = Promise.resolve();
+Persistence.enqueue = function(opFn){
+  var result = Persistence._writeQueue.then(opFn, opFn);
+  Persistence._writeQueue = result.then(function(){}, function(){});
+  return result;
+};
+Persistence.saveDatasetSerialized = function(rows, fields, sourceName){
+  return Persistence.enqueue(function(){ return Persistence.saveDataset(rows, fields, sourceName); });
+};
+Persistence.clearDatasetSerialized = function(){
+  return Persistence.enqueue(function(){ return Persistence.clearDataset(); });
 };
 
 Persistence.saveDashboard = function(){
@@ -2505,7 +2778,9 @@ Render.buildOption = function(spec, columns, mask, selection){
         barMulti.labels.forEach(function(l, i){
           catTotals[l] = barMulti.series.reduce(function(sum, s){ return sum + (s.data[i] || 0); }, 0);
         });
-        var newOrder = Spec.reorderByMode(barMulti.labels, catTotals, spec.sortMode, barMulti.catFirstSeen);
+        var catColForBarSort = findColumn(columns, spec.xField);
+        var isNumericBarCat = !!(catColForBarSort && catColForBarSort.type === 'number');
+        var newOrder = Spec.reorderByMode(barMulti.labels, catTotals, spec.sortMode, barMulti.catFirstSeen, isNumericBarCat);
         var idxMap = newOrder.map(function(l){ return barMulti.labels.indexOf(l); });
         barMulti = {
           labels: newOrder,
@@ -2628,6 +2903,7 @@ Render.buildOption = function(spec, columns, mask, selection){
         },
         data: rows.map(function(_, idx2){ return idx2; }),
         silent: true,
+        _auxiliary: true,
         z: 5,
         tooltip: { show: false }
       }]);
@@ -2650,7 +2926,7 @@ Render.buildOption = function(spec, columns, mask, selection){
         label: showPieLabels ? { show: true, formatter: '{d}%', color: PALETTE.ink2, fontSize: 11 } : { show: false },
         labelLine: { show: showPieLabels },
         data: pieRows.map(function(r){
-          var item = { name: r.label, value: r.value };
+          var item = { name: r.label, value: Math.max(0, r.value || 0) };
           if (r.otherLabels) item.otherLabels = r.otherLabels;
           if (pieSelSet) item.itemStyle = { opacity: pieSelSet.has(r.label) ? 1 : 0.35 };
           return item;
@@ -2723,7 +2999,11 @@ Render.buildOption = function(spec, columns, mask, selection){
       var trend = Stat.linearRegression(points);
       if (trend) {
         var xs = points.map(function(p){ return p[0]; });
-        var xMinV = Math.min.apply(null, xs), xMaxV = Math.max.apply(null, xs);
+        var xMinV = Infinity, xMaxV = -Infinity;
+        for (var xi = 0; xi < xs.length; xi++) {
+          if (xs[xi] < xMinV) xMinV = xs[xi];
+          if (xs[xi] > xMaxV) xMaxV = xs[xi];
+        }
         series = series.concat([{
           name: 'Trend (R\u00b2 = ' + trend.r2.toFixed(2) + ')',
           type: 'line',
@@ -2733,6 +3013,7 @@ Render.buildOption = function(spec, columns, mask, selection){
           lineStyle: { type: 'dashed', width: 2 },
           tooltip: { show: false },
           silent: true,
+          _auxiliary: true,
           z: 3
         }]);
         legend = legend || { bottom: 0 };
@@ -2888,6 +3169,8 @@ Stat.collectByGroup = function(columns, valueField, groupField, mask, maxGroups)
   var gcol = groupField ? findColumn(columns, groupField) : null;
   var n = col.values.length;
   var order = [], map = Object.create(null);
+  var cap = maxGroups || 30;
+  var PER_GROUP_CAP = 500000;
   for (var i = 0; i < n; i++){
     if (mask && !mask[i]) continue;
     var v = col.values[i];
@@ -2895,10 +3178,22 @@ Stat.collectByGroup = function(columns, valueField, groupField, mask, maxGroups)
     var name = gcol ? catRawLabel(gcol, i) : null;
     if (gcol && name === null) continue;
     var key = gcol ? name : '\u0000all';
-    if (!map[key]) { map[key] = { name: name, values: [] }; order.push(key); }
-    map[key].values.push(v);
+    var g = map[key];
+    if (!g) {
+      if (order.length >= cap) continue;
+      g = { name: name, values: [], seen: 0 };
+      map[key] = g;
+      order.push(key);
+    }
+    g.seen++;
+    if (g.values.length < PER_GROUP_CAP) {
+      g.values.push(v);
+    } else {
+      var j = Math.floor(Math.random() * g.seen);
+      if (j < PER_GROUP_CAP) g.values[j] = v;
+    }
   }
-  var groups = order.slice(0, maxGroups || 30).map(function(k){ return map[k]; });
+  var groups = order.map(function(k){ return map[k]; });
   var total = 0;
   groups.forEach(function(g){ total += g.values.length; });
   if (total > 200000) {
@@ -2908,6 +3203,7 @@ Stat.collectByGroup = function(columns, valueField, groupField, mask, maxGroups)
       if (g.values.length > budget) g.values = Stat.thin(g.values, budget);
     });
   }
+  groups.forEach(function(g){ delete g.seen; });
   return groups;
 };
 
@@ -3067,6 +3363,7 @@ Stat.rugSeries = function(values, unit){
 
 registerChart({
   type: 'ecdf',
+  supportsFacet: true,
   label: 'ECDF',
   group: 'distribution',
   needs: [],
@@ -3123,7 +3420,7 @@ registerChart({
   },
   csv: function(panel, opt){
     if (!opt.series || !opt.series.length) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lineSeries = opt.series.filter(function(s){ return s.type === 'line'; });
     if (!lineSeries.length) return null;
     var hasSeries = lineSeries.length > 1 && !!panel.spec.seriesField;
@@ -3140,6 +3437,7 @@ registerChart({
 
 registerChart({
   type: 'density',
+  supportsFacet: true,
   label: 'Density',
   group: 'distribution',
   needs: [],
@@ -3221,7 +3519,7 @@ registerChart({
   },
   csv: function(panel, opt){
     if (!opt.series || !opt.series.length) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var barSeries = opt.series.filter(function(s){ return s.type === 'bar'; });
     if (barSeries.length) {
       var lines = [q(panel.spec.xField) + ',count'];
@@ -3244,6 +3542,7 @@ registerChart({
 
 registerChart({
   type: 'strip',
+  supportsFacet: true,
   label: 'Strip',
   group: 'distribution',
   needs: [],
@@ -3351,12 +3650,12 @@ registerChart({
     if (!params || params.componentType !== 'series') return false;
     var name = (params.data && params.data.name) || params.seriesName;
     if (!name) return false;
-    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    Filters.toggleDiscrete(panel.id, panel.spec.xField, 'value', name);
     return true;
   },
   csv: function(panel, opt){
     if (!opt.series || !opt.series.length) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField || '') + ',' + q(panel.spec.yField || '')];
     (opt.series || []).forEach(function(s){
       (s.data || []).forEach(function(d){
@@ -3372,6 +3671,7 @@ registerChart({
 
 registerChart({
   type: 'boxplot',
+  supportsFacet: true,
   label: 'Box Plot',
   group: 'distribution',
   needs: ['boxplot'],
@@ -3452,13 +3752,13 @@ registerChart({
     if (!params || params.componentType !== 'series') return false;
     var name = (params.data && params.data.name) || params.name;
     if (!name) return false;
-    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    Filters.toggleDiscrete(panel.id, panel.spec.xField, 'value', name);
     return true;
   },
   csv: function(panel, opt){
     var boxSeries = (opt.series || []).filter(function(s){ return s.type === 'boxplot'; })[0];
     if (!boxSeries) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = ['group,min,q1,median,q3,max,n'];
     boxSeries.data.forEach(function(d){
       var v = (d && d.value) || d;
@@ -3472,6 +3772,7 @@ registerChart({
 
 registerChart({
   type: 'heatmap',
+  supportsFacet: true,
   label: 'Heatmap',
   group: 'structure',
   needs: ['heatmap'],
@@ -3534,7 +3835,7 @@ registerChart({
     if (!params || params.componentType !== 'series') return false;
     var name = params.data && params.data.name;
     if (!name) return false;
-    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    Filters.toggleDiscrete(panel.id, panel.spec.xField, 'value', name);
     return true;
   },
   csv: function(panel, opt){
@@ -3542,7 +3843,7 @@ registerChart({
     if (!s || s.type !== 'heatmap') return null;
     var xNames = (opt.xAxis && opt.xAxis[0] && opt.xAxis[0].data) || [];
     var yNames = (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].data) || [];
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField) + ',value'];
     s.data.forEach(function(d){
       var val = (d && d.value) || d;
@@ -3554,6 +3855,7 @@ registerChart({
 
 registerChart({
   type: 'treemap',
+  supportsFacet: false,
   label: 'Treemap',
   group: 'structure',
   needs: ['treemap'],
@@ -3592,14 +3894,14 @@ registerChart({
       if (!grouped.labels.length) return { series: [] };
       nodes = grouped.labels.map(function(catName, xi){
         var children = grouped.series.map(function(s){
-          return { name: s.name, value: Math.max(0, s.data[xi] || 0) };
+          return { name: s.name, value: Math.max(0, s.data[xi] || 0), _catValue: catName };
         }).filter(function(c){ return c.value > 0; });
         var total = children.reduce(function(sum, c){ return sum + c.value; }, 0);
-        return { name: catName, value: total, children: children };
+        return { name: catName, value: total, children: children, _catValue: catName };
       }).filter(function(n){ return n.value > 0; });
     } else {
       var rows = Spec.categoryRows(columns, spec.xField, spec.yField, agg, mask, spec.topN || 20, 'value-desc');
-      nodes = rows.map(function(r){ return { name: r.label, value: Math.max(0, r.value || 0) }; }).filter(function(n){ return n.value > 0; });
+      nodes = rows.map(function(r){ return { name: r.label, value: Math.max(0, r.value || 0), _catValue: r.label }; }).filter(function(n){ return n.value > 0; });
     }
     if (!nodes.length) return { series: [] };
     return {
@@ -3619,15 +3921,15 @@ registerChart({
   },
   onClick: function(panel, params){
     if (!params || params.componentType !== 'series') return false;
-    var level1Name = (params.treePathInfo && params.treePathInfo[0] && params.treePathInfo[0].name) || params.name;
+    var level1Name = (params.data && params.data._catValue !== undefined) ? params.data._catValue : params.name;
     if (!level1Name) return false;
-    Filters.add(panel.id, panel.spec.xField, 'value', level1Name);
+    Filters.toggleDiscrete(panel.id, panel.spec.xField, 'value', level1Name);
     return true;
   },
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
     if (!s || s.type !== 'treemap') return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField || '') + ',value'];
     (s.data || []).forEach(function(node){
       if (node.children && node.children.length) {
@@ -3644,6 +3946,7 @@ registerChart({
 
 registerChart({
   type: 'violin',
+  supportsFacet: true,
   label: 'Violin',
   group: 'distribution',
   needs: ['custom'],
@@ -3787,7 +4090,7 @@ registerChart({
     if (!params || params.componentType !== 'series') return false;
     var name = params.name;
     if (!name) return false;
-    Filters.add(panel.id, panel.spec.xField, 'value', name);
+    Filters.toggleDiscrete(panel.id, panel.spec.xField, 'value', name);
     return true;
   },
   csv: function(panel, opt){
@@ -3797,7 +4100,7 @@ registerChart({
     if (!dataset) return null;
     var groups = Stat.collectByGroup(dataset.columns, panel.spec.yField, panel.spec.xField, Filters.maskFor(panel.id), 12);
     if (!groups.length) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = ['group,min,q1,median,q3,max,n'];
     groups.forEach(function(g){
       var sorted = g.values.slice().sort(function(a, b){ return a - b; });
@@ -3811,6 +4114,7 @@ registerChart({
 
 registerChart({
   type: 'correlation',
+  supportsFacet: true,
   label: 'Correlation',
   group: 'structure',
   needs: ['heatmap'],
@@ -3892,9 +4196,10 @@ registerChart({
   },
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
-    if (!s || !opt.xAxis || !opt.xAxis.data) return null;
-    var labels = opt.xAxis.data;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var xAxisOpt = firstOf(opt.xAxis);
+    if (!s || !xAxisOpt || !xAxisOpt.data) return null;
+    var labels = xAxisOpt.data;
+    function q(v){ return csvSafeField(v); }
     var grid = labels.map(function(){ return new Array(labels.length).fill(''); });
     (s.data || []).forEach(function(cell){
       var xi = cell[0], yi = cell[1], v = cell[2];
@@ -3910,6 +4215,7 @@ registerChart({
 
 registerChart({
   type: 'pairplot',
+  supportsFacet: false,
   label: 'Pair Plot',
   group: 'structure',
   needs: [],
@@ -3943,10 +4249,15 @@ registerChart({
     function histCounts(col, buckets){
       var vals = [];
       rowsIncluded.forEach(function(rj){ var v = col.values[rj]; if (!isNaN(v)) vals.push(v); });
+      var counts = new Array(buckets).fill(0);
+      if (!vals.length) return counts;
       var min = Infinity, max = -Infinity;
       vals.forEach(function(v){ if (v < min) min = v; if (v > max) max = v; });
-      var counts = new Array(buckets).fill(0);
-      if (!isFinite(min) || !isFinite(max) || min === max) return counts;
+      if (!isFinite(min) || !isFinite(max)) return counts;
+      if (min === max) {
+        counts[Math.floor(buckets / 2)] = vals.length;
+        return counts;
+      }
       var width = (max - min) / buckets;
       vals.forEach(function(v){
         var b = Math.floor((v - min) / width);
@@ -4008,6 +4319,7 @@ registerChart({
 
 registerChart({
   type: 'ridgeline',
+  supportsFacet: true,
   label: 'Ridgeline',
   group: 'distribution',
   needs: [],
@@ -4085,7 +4397,7 @@ registerChart({
     if (!dataset) return null;
     var groups = Stat.collectByGroup(dataset.columns, panel.spec.yField, panel.spec.xField, Filters.maskFor(panel.id), 12);
     if (!groups.length) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var bw = panel.spec.bandwidth ? panel.spec.bandwidth / 100 : 1;
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.yField) + ',density'];
     groups.forEach(function(g){
@@ -4101,6 +4413,7 @@ registerChart({
 
 registerChart({
   type: 'funnel',
+  supportsFacet: false,
   label: 'Funnel',
   group: 'advanced',
   needs: ['funnel'],
@@ -4109,7 +4422,7 @@ registerChart({
   makeSpec: function(old, c){
     var cat = (old && c.cat.some(function(x){ return x.name === old.xField; })) ? old.xField : (c.cat[0] && c.cat[0].name);
     if (!cat) return null;
-    var numCands = c.num.filter(function(x){ return x.name !== cat; });
+    var numCands = c.num.filter(function(x){ return x.name !== cat && columnAllPositive(x); });
     var val = (old && numCands.some(function(x){ return x.name === old.yField; })) ? old.yField : ((numCands[0] && numCands[0].name) || null);
     var s = { type: 'funnel', xField: cat, yField: val, aggregation: val ? 'sum' : 'count', topN: 10 };
     s.title = (val ? titleCase(val) : 'Count') + ' by ' + titleCase(cat);
@@ -4121,15 +4434,23 @@ registerChart({
   },
   sanitize: function(s, c){
     if (s.yField && s.yField === s.xField) {
-      var alt = c.num.filter(function(x){ return x.name !== s.xField; })[0];
+      var alt = c.num.filter(function(x){ return x.name !== s.xField && columnAllPositive(x); })[0];
       s.yField = alt ? alt.name : null;
+    }
+    if (s.yField) {
+      var yCol = findColumn(c.usable || c.cat.concat(c.num), s.yField);
+      if (!yCol || yCol.type !== 'number' || !columnAllPositive(yCol)) {
+        var altPos = c.num.filter(function(x){ return x.name !== s.xField && columnAllPositive(x); })[0];
+        s.yField = altPos ? altPos.name : null;
+        s.aggregation = s.yField ? (s.aggregation || 'sum') : 'count';
+      }
     }
     return s;
   },
   title: function(s){ return (s.yField ? titleCase(s.yField) : 'Count') + ' by ' + titleCase(s.xField); },
   numericFields: function(s){ return s.yField ? [s.yField] : []; },
   fields: function(s, c, H){
-    var numCands = c.num.filter(function(x){ return x.name !== s.xField; });
+    var numCands = c.num.filter(function(x){ return x.name !== s.xField && columnAllPositive(x); });
     return H.fieldRow('Category field', 'xField', c.cat, s.xField) +
            H.fieldRowWithNone('Value field', 'yField', numCands, s.yField);
   },
@@ -4155,7 +4476,7 @@ registerChart({
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
     if (!s || !s.data) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField) + ',' + (panel.spec.yField ? q(panel.spec.yField) : 'count')];
     s.data.forEach(function(d){ lines.push(q(d.name) + ',' + d.value); });
     return lines.length > 1 ? lines : null;
@@ -4164,6 +4485,7 @@ registerChart({
 
 registerChart({
   type: 'radar',
+  supportsFacet: false,
   label: 'Radar',
   group: 'advanced',
   needs: ['radar'],
@@ -4204,9 +4526,17 @@ registerChart({
     var entityLabels = perField[0].map(function(r){ return r.label; }).slice(0, 6);
     if (!entityLabels.length) return { series: [] };
     var indicator = fieldNames.map(function(name, fi){
-      var maxV = 0;
-      perField[fi].forEach(function(r){ if (r.value > maxV) maxV = r.value; });
-      return { name: titleCase(name), max: maxV || 1 };
+      var minV = Infinity, maxV = -Infinity;
+      perField[fi].forEach(function(r){
+        if (r.value < minV) minV = r.value;
+        if (r.value > maxV) maxV = r.value;
+      });
+      if (!isFinite(minV) || !isFinite(maxV)) { minV = 0; maxV = 1; }
+      if (minV > 0) minV = 0;
+      if (maxV <= minV) maxV = minV + 1;
+      var ind = { name: titleCase(name), max: maxV };
+      if (minV !== 0) ind.min = minV;
+      return ind;
     });
     var seriesData = entityLabels.map(function(label){
       var values = fieldNames.map(function(name, fi){
@@ -4224,9 +4554,10 @@ registerChart({
   },
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
-    if (!s || !opt.radar || !opt.radar.indicator) return null;
-    var indicators = opt.radar.indicator.map(function(i){ return i.name; });
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var radarOpt = firstOf(opt.radar);
+    if (!s || !radarOpt || !radarOpt.indicator) return null;
+    var indicators = radarOpt.indicator.map(function(i){ return i.name; });
+    function q(v){ return csvSafeField(v); }
     var lines = [',' + indicators.map(q).join(',')];
     s.data.forEach(function(d){ lines.push(q(d.name) + ',' + d.value.join(',')); });
     return lines.length > 1 ? lines : null;
@@ -4235,6 +4566,7 @@ registerChart({
 
 registerChart({
   type: 'sunburst',
+  supportsFacet: false,
   label: 'Sunburst',
   group: 'advanced',
   needs: ['sunburst'],
@@ -4256,15 +4588,20 @@ registerChart({
       var alt = c.cat.filter(function(x){ return x.name !== s.xField; })[0];
       s.seriesField = alt ? alt.name : null;
     }
+    if (s.yField) {
+      var yCol = findColumn(c.usable || c.cat.concat(c.num), s.yField);
+      if (!yCol || yCol.type !== 'number' || !columnAllPositive(yCol)) s.yField = null;
+    }
     return s;
   },
   title: function(s){ return titleCase(s.xField) + ' \u2192 ' + titleCase(s.seriesField); },
   numericFields: function(s){ return s.yField ? [s.yField] : []; },
   fields: function(s, c, H){
     var l2Cands = c.cat.filter(function(x){ return x.name !== s.xField; });
+    var posNum = c.num.filter(function(x){ return columnAllPositive(x); });
     return H.fieldRow('Inner ring', 'xField', c.cat, s.xField) +
            H.fieldRow('Outer ring', 'seriesField', l2Cands, s.seriesField) +
-           H.fieldRowWithNone('Value field', 'yField', c.num, s.yField);
+           H.fieldRowWithNone('Value field', 'yField', posNum, s.yField);
   },
   style: function(s, H){ return ''; },
   build: function(spec, columns, mask, selection, F){
@@ -4282,6 +4619,7 @@ registerChart({
       if (l1 === null || l2 === null) continue;
       var v = valCol ? valCol.values[i] : 1;
       if (valCol && isNaN(v)) continue;
+      v = Math.max(0, v);
       if (!tree[l1]) { tree[l1] = Object.create(null); order1.push(l1); }
       tree[l1][l2] = (tree[l1][l2] || 0) + (valCol ? v : 1);
     }
@@ -4312,7 +4650,7 @@ registerChart({
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
     if (!s || !s.data) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField) + ',value'];
     s.data.forEach(function(d1){
       (d1.children || []).forEach(function(d2){ lines.push(q(d1.name) + ',' + q(d2.name) + ',' + d2.value); });
@@ -4323,6 +4661,7 @@ registerChart({
 
 registerChart({
   type: 'sankey',
+  supportsFacet: false,
   label: 'Sankey',
   group: 'advanced',
   needs: ['sankey'],
@@ -4344,15 +4683,20 @@ registerChart({
       var alt = c.cat.filter(function(x){ return x.name !== s.xField; })[0];
       s.seriesField = alt ? alt.name : null;
     }
+    if (s.yField) {
+      var yCol = findColumn(c.usable || c.cat.concat(c.num), s.yField);
+      if (!yCol || yCol.type !== 'number' || !columnAllPositive(yCol)) s.yField = null;
+    }
     return s;
   },
   title: function(s){ return titleCase(s.xField) + ' \u2192 ' + titleCase(s.seriesField); },
   numericFields: function(s){ return s.yField ? [s.yField] : []; },
   fields: function(s, c, H){
     var tgtCands = c.cat.filter(function(x){ return x.name !== s.xField; });
+    var posNum = c.num.filter(function(x){ return columnAllPositive(x); });
     return H.fieldRow('Source field', 'xField', c.cat, s.xField) +
            H.fieldRow('Target field', 'seriesField', tgtCands, s.seriesField) +
-           H.fieldRowWithNone('Value field', 'yField', c.num, s.yField);
+           H.fieldRowWithNone('Value field', 'yField', posNum, s.yField);
   },
   style: function(s, H){ return ''; },
   build: function(spec, columns, mask, selection, F){
@@ -4361,57 +4705,75 @@ registerChart({
     if (!srcCol || !tgtCol) return { series: [] };
     var valCol = spec.yField ? findColumn(columns, spec.yField) : null;
     var n = srcCol.values.length;
-    var linkMap = Object.create(null);
+    var linkMap = new Map();
     for (var i = 0; i < n; i++) {
       if (mask && !mask[i]) continue;
       var s1 = catRawLabel(srcCol, i);
       var t1 = catRawLabel(tgtCol, i);
-      if (s1 === null || t1 === null || s1 === t1) continue;
+      if (s1 === null || t1 === null) continue;
       var v = valCol ? valCol.values[i] : 1;
       if (valCol && isNaN(v)) continue;
-      var key = s1 + '\u0001' + t1;
-      linkMap[key] = (linkMap[key] || 0) + (valCol ? v : 1);
+      v = Math.max(0, v);
+      if (!linkMap.has(s1)) linkMap.set(s1, new Map());
+      var inner = linkMap.get(s1);
+      inner.set(t1, (inner.get(t1) || 0) + (valCol ? v : 1));
     }
-    var linkKeys = Object.keys(linkMap);
-    linkKeys.sort(function(a, b){ return linkMap[b] - linkMap[a]; });
-    var capped = linkKeys.slice(0, 40);
-    var nodeNames = Object.create(null);
-    var nodes = [];
-    capped.forEach(function(key){
-      var parts = key.split('\u0001');
-      [parts[0], parts[1]].forEach(function(name){
-        if (!nodeNames[name]) { nodeNames[name] = true; nodes.push({ name: name }); }
-      });
+    var allLinks = [];
+    linkMap.forEach(function(inner, srcLabel){
+      inner.forEach(function(val, tgtLabel){ allLinks.push({ s1: srcLabel, t1: tgtLabel, value: val }); });
     });
-    var links = capped.map(function(key){
-      var parts = key.split('\u0001');
-      return { source: parts[0], target: parts[1], value: linkMap[key] };
+    allLinks.sort(function(a, b){ return b.value - a.value; });
+    var capped = allLinks.slice(0, 40);
+    var nodeIds = new Set();
+    var nodes = [];
+    function ensureNode(role, label){
+      var id = role + '\u0001' + label;
+      if (!nodeIds.has(id)) { nodeIds.add(id); nodes.push({ name: id, displayName: label }); }
+      return id;
+    }
+    var links = capped.map(function(l){
+      var srcId = ensureNode('source', l.s1);
+      var tgtId = ensureNode('target', l.t1);
+      return { source: srcId, target: tgtId, value: l.value, s1: l.s1, t1: l.t1 };
     });
     if (!links.length) return { series: [] };
+    function displayOf(name){
+      var idx = String(name).indexOf('\u0001');
+      return idx >= 0 ? name.slice(idx + 1) : name;
+    }
     return {
-      tooltip: { trigger: 'item', valueFormatter: F.fmtTooltip },
+      tooltip: {
+        trigger: 'item',
+        formatter: function(params){
+          if (params.dataType === 'edge') {
+            return escapeHtml(displayOf(params.data.source)) + ' \u2192 ' + escapeHtml(displayOf(params.data.target)) + ': ' + escapeHtml(F.fmtTooltip(params.value));
+          }
+          return escapeHtml(displayOf(params.name));
+        }
+      },
       series: [{
         type: 'sankey',
         data: nodes,
         links: links,
         emphasis: { focus: 'adjacency' },
         lineStyle: { color: 'gradient', curveness: 0.5 },
-        label: { color: PALETTE.ink2, fontSize: 11 }
+        label: { color: PALETTE.ink2, fontSize: 11, formatter: function(p){ return displayOf(p.name); } }
       }]
     };
   },
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
     if (!s || !s.links) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.seriesField) + ',value'];
-    s.links.forEach(function(l){ lines.push(q(l.source) + ',' + q(l.target) + ',' + l.value); });
+    s.links.forEach(function(l){ lines.push(q(l.s1) + ',' + q(l.t1) + ',' + l.value); });
     return lines.length > 1 ? lines : null;
   }
 });
 
 registerChart({
   type: 'parallel',
+  supportsFacet: false,
   label: 'Parallel Coordinates',
   group: 'advanced',
   needs: ['parallel'],
@@ -4469,10 +4831,16 @@ registerChart({
         if (!byCat[k]) { byCat[k] = []; catOrder.push(k); }
         byCat[k].push(l.vals);
       });
+      catOrder.sort(function(a, b){ return byCat[b].length - byCat[a].length; });
       var capped = collapseTopN(catOrder, 8);
       series = capped.top.map(function(k){
         return { name: k, type: 'parallel', lineStyle: { width: 1, opacity: 0.5 }, data: byCat[k] };
       });
+      if (capped.hasOther) {
+        var otherData = [];
+        capped.rest.forEach(function(k){ otherData = otherData.concat(byCat[k]); });
+        series.push({ name: 'Other', type: 'parallel', lineStyle: { width: 1, opacity: 0.3, color: PALETTE.ink2 }, data: otherData });
+      }
       option.legend = { bottom: 0, type: 'scroll', textStyle: { overflow: 'truncate', width: 90 } };
     } else {
       series = [{ type: 'parallel', lineStyle: { width: 1, opacity: 0.4, color: PALETTE.ink2 }, data: lines.map(function(l){ return l.vals; }) }];
@@ -4483,7 +4851,7 @@ registerChart({
   csv: function(panel, opt){
     if (!opt.series || !opt.series.length) return null;
     var fields = panel.spec.fields || [];
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = [fields.map(function(f){ return q(titleCase(f)); }).join(',') + (panel.spec.colorField ? ',' + q(titleCase(panel.spec.colorField)) : '')];
     opt.series.forEach(function(s){
       (s.data || []).forEach(function(row){
@@ -4496,6 +4864,7 @@ registerChart({
 
 registerChart({
   type: 'calendar',
+  supportsFacet: false,
   label: 'Calendar',
   group: 'advanced',
   needs: ['heatmap'],
@@ -4560,7 +4929,7 @@ registerChart({
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
     if (!s || !s.data) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    function q(v){ return csvSafeField(v); }
     var lines = ['date,' + (panel.spec.yField ? q(panel.spec.yField) : 'count')];
     s.data.forEach(function(d){ lines.push(q(d[0]) + ',' + d[1]); });
     return lines.length > 1 ? lines : null;
@@ -4569,6 +4938,7 @@ registerChart({
 
 registerChart({
   type: 'combo',
+  supportsFacet: false,
   label: 'Combo (Bar + Line)',
   group: 'advanced',
   needs: [],
@@ -4641,9 +5011,10 @@ registerChart({
     };
   },
   csv: function(panel, opt){
-    if (!opt.xAxis || !opt.xAxis.data || !opt.series || opt.series.length < 2) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
-    var labels = opt.xAxis.data;
+    var xAxisOpt = firstOf(opt.xAxis);
+    if (!xAxisOpt || !xAxisOpt.data || !opt.series || opt.series.length < 2) return null;
+    function q(v){ return csvSafeField(v); }
+    var labels = xAxisOpt.data;
     var lines = [q(panel.spec.xField) + ',' + q(panel.spec.yField) + ',' + q(panel.spec.y2Field)];
     labels.forEach(function(l, i){
       lines.push(q(l) + ',' + opt.series[0].data[i] + ',' + opt.series[1].data[i]);
@@ -4654,6 +5025,7 @@ registerChart({
 
 registerChart({
   type: 'candlestick',
+  supportsFacet: true,
   label: 'Candlestick',
   group: 'advanced',
   needs: ['candlestick'],
@@ -4684,14 +5056,37 @@ registerChart({
     if (!this.available(c)) return null;
     return { spec: this.makeSpec(null, c), score: 18, reason: 'date + 4 numeric \u2192 candlestick' };
   },
+  sanitize: function(s, c){
+    var roles = ['openField', 'highField', 'lowField', 'closeField'];
+    var used = [];
+    roles.forEach(function(role){
+      if (s[role] && used.indexOf(s[role]) === -1 && c.num.some(function(x){ return x.name === s[role]; })) {
+        used.push(s[role]);
+      } else {
+        s[role] = null;
+      }
+    });
+    var remaining = c.num.filter(function(x){ return used.indexOf(x.name) === -1; }).map(function(x){ return x.name; });
+    roles.forEach(function(role){
+      if (!s[role]) {
+        var next = remaining.shift();
+        if (next) { s[role] = next; used.push(next); }
+      }
+    });
+    return s;
+  },
   title: function(s){ return titleCase(s.closeField) + ' OHLC by ' + titleCase(s.xField); },
   numericFields: function(s){ return [s.openField, s.highField, s.lowField, s.closeField]; },
   fields: function(s, c, H){
+    function candidatesExcluding(otherRoles){
+      var usedElsewhere = otherRoles.map(function(r){ return s[r]; }).filter(Boolean);
+      return c.num.filter(function(x){ return usedElsewhere.indexOf(x.name) === -1; });
+    }
     return H.fieldRow('Date field', 'xField', c.allDate || c.date, s.xField) +
-           H.fieldRow('Open', 'openField', c.num, s.openField) +
-           H.fieldRow('High', 'highField', c.num, s.highField) +
-           H.fieldRow('Low', 'lowField', c.num, s.lowField) +
-           H.fieldRow('Close', 'closeField', c.num, s.closeField);
+           H.fieldRow('Open', 'openField', candidatesExcluding(['highField','lowField','closeField']), s.openField) +
+           H.fieldRow('High', 'highField', candidatesExcluding(['openField','lowField','closeField']), s.highField) +
+           H.fieldRow('Low', 'lowField', candidatesExcluding(['openField','highField','closeField']), s.lowField) +
+           H.fieldRow('Close', 'closeField', candidatesExcluding(['openField','highField','lowField']), s.closeField);
   },
   style: function(s, H){ return ''; },
   build: function(spec, columns, mask, selection, F){
@@ -4737,10 +5132,11 @@ registerChart({
   },
   csv: function(panel, opt){
     var s = (opt.series || [])[0];
-    if (!s || !s.data || !opt.xAxis || !opt.xAxis.data) return null;
-    function q(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
+    var xAxisOpt = firstOf(opt.xAxis);
+    if (!s || !s.data || !xAxisOpt || !xAxisOpt.data) return null;
+    function q(v){ return csvSafeField(v); }
     var lines = ['date,open,close,low,high'];
-    opt.xAxis.data.forEach(function(dateStr, i){
+    xAxisOpt.data.forEach(function(dateStr, i){
       var d = s.data[i];
       lines.push(q(dateStr) + ',' + d[0] + ',' + d[1] + ',' + d[2] + ',' + d[3]);
     });
@@ -4750,6 +5146,7 @@ registerChart({
 
 registerChart({
   type: 'qqplot',
+  supportsFacet: true,
   label: 'Q-Q Plot',
   group: 'distribution',
   needs: [],
@@ -4798,7 +5195,11 @@ registerChart({
       return [Stat.invNormalCDF(p), v];
     });
     var theoXs = points.map(function(p){ return p[0]; });
-    var tMin = Math.min.apply(null, theoXs), tMax = Math.max.apply(null, theoXs);
+    var tMin = Infinity, tMax = -Infinity;
+    for (var qi = 0; qi < theoXs.length; qi++) {
+      if (theoXs[qi] < tMin) tMin = theoXs[qi];
+      if (theoXs[qi] > tMax) tMax = theoXs[qi];
+    }
     var refLine = [[tMin, mean + sd * tMin], [tMax, mean + sd * tMax]];
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
@@ -4969,13 +5370,26 @@ Object.defineProperty(UI, 'chart', {
 });
 
 UI.MAX_COMMAND_HISTORY = 50;
+UI.MAX_DATASET_REVISIONS = 6;
+UI.datasetRevision = 0;
+UI.datasetRevisions = new Map();
+UI.loadGeneration = 0;
+
+UI.registerDatasetRevision = function(rows, fields, sourceName){
+  UI.datasetRevision++;
+  UI.datasetRevisions.set(UI.datasetRevision, { rows: rows, fields: fields, sourceName: sourceName });
+  var ids = Array.from(UI.datasetRevisions.keys()).sort(function(a, b){ return a - b; });
+  while (ids.length > UI.MAX_DATASET_REVISIONS) {
+    UI.datasetRevisions.delete(ids.shift());
+  }
+  return UI.datasetRevision;
+};
 
 UI.captureSnapshot = function(){
   var store = Store.get();
   if (!store.dataset || !store.rawRows) return null;
   return {
-    rows: store.rawRows,
-    fields: store.rawFields,
+    datasetRevisionId: UI.datasetRevision,
     sourceName: store.sourceName,
     panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }),
     filters: JSON.parse(JSON.stringify(Filters.list)),
@@ -4994,12 +5408,69 @@ UI.pushCommand = function(){
   UI.updateUndoRedoButtons();
 };
 
+UI.applyPanelsAndFiltersOnly = function(snapshot){
+  var dataset = Store.get().dataset;
+  if (!dataset) return false;
+  var regenerated = regenerateDashboardIds(snapshot.panels, snapshot.filters);
+  var candidatePanels = regenerated.panels.map(function(pd){
+    var valid = true;
+    try { Render.buildOption(pd.spec, dataset.columns, null, null); }
+    catch (e) { valid = false; }
+    if (!valid || !pd.spec || (!BUILTIN_TYPES[pd.spec.type] && !PLUGINS[pd.spec.type])) {
+      var fallback = Spec.autoRecommend(dataset.columns);
+      if (!fallback) return null;
+      pd = { id: pd.id, spec: fallback };
+    }
+    return { id: pd.id, spec: pd.spec, chart: null, el: null };
+  }).filter(Boolean);
+  if (!candidatePanels.length) return false;
+
+  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.els.panelGrid.innerHTML = '';
+  UI.purgeExportMenus();
+  UI.panels = candidatePanels;
+  UI._nextPanelId = regenerated.nextPanelId || UI.panels.length;
+  Filters.list = regenerated.filters;
+
+  UI.panels.forEach(function(p){
+    UI.mountPanel(p);
+    UI.initPanelChart(p, dataset.columns);
+  });
+  UI.updatePanelGridLayout();
+  UI.activeIndex = Math.min(snapshot.activeIndex || 0, UI.panels.length - 1);
+  Array.prototype.forEach.call(UI.els.panelGrid.children, function(c, i){
+    c.classList.toggle('is-active', i === UI.activeIndex);
+  });
+  UI.clearError();
+  UI.refreshAllPanels();
+  Persistence.saveDashboard();
+  return true;
+};
+
 UI.applySnapshot = function(snapshot){
   UI._suspendHistory = true;
-  if (snapshot.empty || !snapshot.rows || !snapshot.rows.length) {
+  if (snapshot.empty || !snapshot.datasetRevisionId) {
     UI.resetToEmpty();
+  } else if (snapshot.datasetRevisionId === UI.datasetRevision && Store.get().dataset && UI.applyPanelsAndFiltersOnly(snapshot)) {
   } else {
-    UI.restoreDashboardState(snapshot, snapshot.sourceName, { skipDatasetSave: true });
+    var rev = UI.datasetRevisions.get(snapshot.datasetRevisionId);
+    if (!rev) {
+      UI.toast('That step is too far back \u2014 the data for it is no longer held in memory.');
+      UI._suspendHistory = false;
+      UI.updateUndoRedoButtons();
+      return;
+    }
+    var payload = {
+      version: DRAW_SCHEMA,
+      rows: rev.rows,
+      fields: rev.fields,
+      sourceName: rev.sourceName,
+      panels: snapshot.panels,
+      filters: snapshot.filters,
+      activeIndex: snapshot.activeIndex,
+      nextPanelId: snapshot.nextPanelId
+    };
+    UI.restoreDashboardState(payload, rev.sourceName, { datasetRevisionId: snapshot.datasetRevisionId });
   }
   UI._suspendHistory = false;
   UI.updateUndoRedoButtons();
@@ -5032,6 +5503,7 @@ UI.resetToEmpty = function(){
   UI.panels = [];
   UI._nextPanelId = 0;
   UI.activeIndex = 0;
+  UI.loadGeneration++;
   Store.set({ dataset: null, sourceName: null, rawRows: null, rawFields: null });
   Filters.clearAll();
   UI.renderFilterPills();
@@ -5039,7 +5511,7 @@ UI.resetToEmpty = function(){
   UI.clearError();
   UI.manualData = null;
   Persistence.clearDashboard();
-  Persistence.clearDataset();
+  Persistence.clearDatasetSerialized();
   UI.els.workspace.hidden = true;
   UI.els.onboarding.hidden = false;
   UI.setWorkspaceControlsVisible(false);
@@ -5099,7 +5571,9 @@ UI.init = function(){
   UI.els.workspaceBusyText = document.getElementById('workspaceBusyText');
 
   UI.els.fileInput.addEventListener('change', function(e){
-    if (e.target.files && e.target.files[0]) UI.loadFile(e.target.files[0]);
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) UI.loadFile(f);
   });
   UI.els.fileButton.addEventListener('click', function(){
     UI.els.fileInput.click();
@@ -5107,14 +5581,18 @@ UI.init = function(){
   UI.els.fileButton.disabled = false;
 
   var dragDepth = 0;
+  function dragHasFiles(e){
+    return !!(e.dataTransfer && e.dataTransfer.types && Array.prototype.indexOf.call(e.dataTransfer.types, 'Files') !== -1);
+  }
   document.addEventListener('dragenter', function(e){
+    if (!dragHasFiles(e)) return;
     e.preventDefault();
     dragDepth++;
     document.body.classList.add('is-interacting');
     UI.els.dropzone.classList.add('is-dragover');
     UI.els.dropOverlay.hidden = false;
   });
-  document.addEventListener('dragover', function(e){ e.preventDefault(); });
+  document.addEventListener('dragover', function(e){ if (dragHasFiles(e)) e.preventDefault(); });
   document.addEventListener('dragleave', function(){
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) {
@@ -5510,23 +5988,49 @@ UI.setWorkspaceControlsVisible = function(visible){
   UI.els.saveDashboardBtn.hidden = !visible;
 };
 
+function regenerateDashboardIds(rawPanels, rawFilters){
+  var panels = (Array.isArray(rawPanels) ? rawPanels : []).filter(function(pd){
+    return pd && typeof pd === 'object' && !Array.isArray(pd) &&
+           pd.spec && typeof pd.spec === 'object' && !Array.isArray(pd.spec) && typeof pd.spec.type === 'string';
+  });
+  var idMap = new Map();
+  var nextIdNum = 0;
+  panels.forEach(function(pd){
+    idMap.set(pd.id, 'panel-' + nextIdNum);
+    nextIdNum++;
+  });
+  var remappedPanels = panels.map(function(pd){ return { id: idMap.get(pd.id), spec: pd.spec }; });
+  var rawF = Array.isArray(rawFilters) ? rawFilters : [];
+  var remappedFilters = rawF.filter(function(f){
+    return f && typeof f === 'object' && !Array.isArray(f) && typeof f.field === 'string' &&
+           (f.kind === 'value' || f.kind === 'in' || f.kind === 'range') && idMap.has(f.panelId);
+  }).map(function(f){
+    return { panelId: idMap.get(f.panelId), field: f.field, kind: f.kind, payload: f.payload };
+  });
+  var result = { panels: remappedPanels, filters: remappedFilters, nextPanelId: nextIdNum };
+  try { return JSON.parse(JSON.stringify(result)); } catch (err) { return result; }
+}
+
 UI.restoreDashboardState = function(payload, sourceLabel, opts){
-  if (!payload || !payload.rows || !payload.rows.length || !payload.fields) {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.rows) || !payload.rows.length || !Array.isArray(payload.fields)) {
     UI.showError('That file is missing data Draw needs to restore it.');
     return false;
   }
   var newerSchema = typeof payload.version === 'number' && payload.version > DRAW_SCHEMA;
-  var store = Data.buildColumnarStore(payload.rows, payload.fields);
-  Store.set({ dataset: store, sourceName: payload.sourceName || sourceLabel, rawRows: payload.rows, rawFields: payload.fields });
+  var store;
+  try {
+    store = Data.buildColumnarStore(payload.rows, payload.fields);
+  } catch (err) {
+    UI.showError('Couldn\u2019t make sense of that file\u2019s data.');
+    return false;
+  }
 
-  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
-  UI.els.panelGrid.innerHTML = '';
-  UI.purgeExportMenus();
-  UI.panels = (payload.panels || []).map(function(pd){
+  var regenerated = regenerateDashboardIds(payload.panels, payload.filters);
+  var candidatePanels = regenerated.panels.map(function(pd){
     return { id: pd.id, spec: pd.spec, chart: null, el: null };
   });
   var hadUnknownType = false;
-  UI.panels.forEach(function(p){
+  candidatePanels.forEach(function(p){
     if (p.spec && !BUILTIN_TYPES[p.spec.type] && !PLUGINS[p.spec.type]) {
       var fallback = Spec.autoRecommend(store.columns);
       if (fallback) p.spec = fallback;
@@ -5540,13 +6044,22 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
       }
     }
   });
+  if (!candidatePanels.length) {
+    var autoSpec = Spec.autoRecommend(store.columns);
+    if (!autoSpec) { UI.showError('Couldn\u2019t find a column worth charting in that file.'); return false; }
+    candidatePanels = [{ id: 'panel-0', spec: autoSpec, chart: null, el: null }];
+  }
+
+  var revisionId = (opts && opts.datasetRevisionId) || UI.registerDatasetRevision(payload.rows, payload.fields, payload.sourceName || sourceLabel);
+  UI.loadGeneration++;
+  Store.set({ dataset: store, sourceName: payload.sourceName || sourceLabel, rawRows: payload.rows, rawFields: payload.fields });
+
+  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.els.panelGrid.innerHTML = '';
+  UI.purgeExportMenus();
+  UI.panels = candidatePanels;
   if (hadUnknownType) UI.toast('One chart used a type this version doesn\u2019t have');
   else if (newerSchema) UI.toast('This file was saved by a newer version of Draw \u2014 some charts may not look right');
-  if (!UI.panels.length) {
-    var spec = Spec.autoRecommend(store.columns);
-    if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in that file.'); return false; }
-    UI.panels = [{ id: 'panel-0', spec: spec, chart: null, el: null }];
-  }
   UI._nextPanelId = payload.nextPanelId || UI.panels.length;
   Filters.list = payload.filters ? JSON.parse(JSON.stringify(payload.filters)) : [];
 
@@ -5565,14 +6078,10 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
   UI.setWorkspaceControlsVisible(true);
   UI.clearError();
   UI.refreshAllPanels();
-  if (opts && opts.skipDatasetSave) {
-    Persistence.saveDashboard();
-  } else {
-    Persistence.saveDataset(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
-      if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
-    });
-    Persistence.saveDashboard();
-  }
+  Persistence.saveDashboard();
+  Persistence.saveDatasetSerialized(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
+    if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
+  });
 
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
@@ -5598,13 +6107,14 @@ UI.restoreSession = function(){
   });
 };
 
-UI.refreshAllPanels = function(){
+UI.refreshAllPanels = function(excludePanelId){
   var dataset = Store.get().dataset;
   if (!dataset) return;
   var panelIds = UI.panels.map(function(p){ return p.id; });
   Filters.recompute(dataset.columns, dataset.rowCount, panelIds);
   UI.panels.forEach(function(p){
     if (!p.chart || !p.spec) return;
+    if (excludePanelId && p.id === excludePanelId) return;
     var mask = Filters.maskFor(p.id);
     var option = Render.buildFacetedOption(p.spec, dataset.columns, mask, Filters.ownFilter(p.id));
     p.chart.setOption(option, true);
@@ -5629,7 +6139,7 @@ UI.renderFilterPills = function(){
       : f.kind === 'in' ? (titleCase(f.field) + ': Other (' + f.payload.length + ')')
       : isDateRange ? (titleCase(f.field) + ': ' + dayKey(f.payload[0]) + '\u2013' + dayKey(f.payload[1]))
       : (titleCase(f.field) + ': ' + Spec.formatCompact(f.payload[0]) + '\u2013' + Spec.formatCompact(f.payload[1]));
-    return '<button type="button" class="filter-pill" data-filter-index="' + i + '">' + escapeHtml(label) + ' <span class="pill-x" aria-hidden="true">\u00d7</span></button>';
+    return '<button type="button" class="filter-pill" data-filter-index="' + i + '" aria-label="' + escapeHtml('Remove filter: ' + label) + '">' + escapeHtml(label) + ' <span class="pill-x" aria-hidden="true">\u00d7</span></button>';
   }).join('') + '<button type="button" class="clear-filters-btn" id="clearAllFiltersBtn">Clear all</button>';
 
   Array.prototype.slice.call(container.querySelectorAll('.filter-pill')).forEach(function(pill){
@@ -5655,8 +6165,8 @@ UI.wireChartInteractions = function(panel){
     }
     if ((spec.type === 'bar' || spec.type === 'donut') && params.name !== undefined) {
       var otherLabels = params.data && typeof params.data === 'object' ? params.data.otherLabels : null;
-      if (otherLabels) Filters.add(panel.id, spec.xField, 'in', otherLabels);
-      else Filters.add(panel.id, spec.xField, 'value', params.name);
+      if (otherLabels) Filters.toggleDiscrete(panel.id, spec.xField, 'in', otherLabels);
+      else Filters.toggleDiscrete(panel.id, spec.xField, 'value', params.name);
       UI.refreshAllPanels();
       UI.pushCommand();
     } else if (spec.type === 'histogram' && params.dataIndex !== undefined) {
@@ -5665,7 +6175,7 @@ UI.wireChartInteractions = function(panel){
       if (stats) {
         var lo = stats.min + params.dataIndex * stats.width;
         var hi = (params.dataIndex === stats.buckets - 1) ? stats.max : stats.min + (params.dataIndex + 1) * stats.width;
-        Filters.add(panel.id, spec.xField, 'range', [lo, hi]);
+        Filters.upsertRange(panel.id, spec.xField, [lo, hi]);
         UI.refreshAllPanels();
         UI.pushCommand();
       }
@@ -5681,26 +6191,64 @@ UI.wireChartInteractions = function(panel){
     var isFullX = !xdz || (xdz.start === 0 && xdz.end === 100);
     var isFullY = !ydz || (ydz.start === 0 && ydz.end === 100);
     if (!isFullX && xdz.startValue !== undefined) {
-      Filters.add(panel.id, spec.xField, 'range', [xdz.startValue, xdz.endValue]);
+      Filters.upsertRange(panel.id, spec.xField, [xdz.startValue, xdz.endValue]);
     } else {
-      var xIdx = Filters.list.findIndex(function(f){ return f.panelId === panel.id && f.field === spec.xField; });
-      if (xIdx >= 0) Filters.removeAt(xIdx);
+      Filters.remove(panel.id, spec.xField);
     }
     if (!isFullY && ydz.startValue !== undefined) {
-      Filters.add(panel.id, spec.yField, 'range', [ydz.startValue, ydz.endValue]);
+      Filters.upsertRange(panel.id, spec.yField, [ydz.startValue, ydz.endValue]);
     } else {
-      var yIdx = Filters.list.findIndex(function(f){ return f.panelId === panel.id && f.field === spec.yField; });
-      if (yIdx >= 0) Filters.removeAt(yIdx);
+      Filters.remove(panel.id, spec.yField);
     }
-    UI.refreshAllPanels();
+    UI.refreshAllPanels(panel.id);
     clearTimeout(datazoomPushTimer);
     datazoomPushTimer = setTimeout(function(){ UI.pushCommand(); }, 400);
   });
+
+  if (panel.el) {
+    panel.el.setAttribute('tabindex', '0');
+    panel._kbdFocusIndex = -1;
+    panel.el.addEventListener('keydown', function(e){
+      var spec = panel.spec;
+      if (!spec || PLUGINS[spec.type] || spec.seriesField) return;
+      if (spec.type !== 'bar' && spec.type !== 'donut') return;
+      if (['ArrowRight','ArrowDown','ArrowLeft','ArrowUp','Enter',' '].indexOf(e.key) === -1) return;
+      var opt = panel.chart.getOption();
+      var labels;
+      if (spec.type === 'donut') {
+        var s0 = (opt.series || [])[0];
+        labels = s0 ? s0.data.map(function(d){ return d.name; }) : [];
+      } else {
+        var xA = firstOf(opt.xAxis);
+        labels = (xA && xA.type === 'category') ? xA.data : [];
+      }
+      if (!labels.length) return;
+      e.preventDefault();
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        panel._kbdFocusIndex = (panel._kbdFocusIndex + 1) % labels.length;
+        UI.toast('Highlighted: ' + labels[panel._kbdFocusIndex] + ' (' + (panel._kbdFocusIndex + 1) + ' of ' + labels.length + ') \u2014 press Enter to filter');
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        panel._kbdFocusIndex = (panel._kbdFocusIndex - 1 + labels.length) % labels.length;
+        UI.toast('Highlighted: ' + labels[panel._kbdFocusIndex] + ' (' + (panel._kbdFocusIndex + 1) + ' of ' + labels.length + ') \u2014 press Enter to filter');
+      } else if (panel._kbdFocusIndex >= 0) {
+        var name = labels[panel._kbdFocusIndex];
+        Filters.toggleDiscrete(panel.id, spec.xField, 'value', name);
+        UI.refreshAllPanels();
+        UI.pushCommand();
+        UI.toast('Filtered to: ' + name);
+      }
+    });
+  }
 };
 
 UI.showError = function(message){
-  UI.els.onboardingError.hidden = false;
-  UI.els.onboardingError.textContent = message;
+  var inOnboarding = !UI.els.onboarding.hidden;
+  if (inOnboarding) {
+    UI.els.onboardingError.hidden = false;
+    UI.els.onboardingError.textContent = message;
+  } else {
+    UI.toast(message, { duration: 7000, isError: true });
+  }
 };
 UI.clearError = function(){
   UI.els.onboardingError.hidden = true;
@@ -5713,7 +6261,7 @@ UI.toast = function(message, action){
   var text = document.createElement('span');
   text.textContent = message;
   inner.appendChild(text);
-  if (action) {
+  if (action && action.label) {
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'toast-action';
@@ -5726,23 +6274,29 @@ UI.toast = function(message, action){
     inner.appendChild(btn);
   }
   UI.els.toast.appendChild(inner);
+  UI.els.toast.classList.toggle('is-error', !!(action && action.isError));
   requestAnimationFrame(function(){ UI.els.toast.classList.add('is-visible'); });
   clearTimeout(UI._toastTimer);
-  UI._toastTimer = setTimeout(function(){ UI.els.toast.classList.remove('is-visible'); }, action ? 6000 : 3200);
+  var duration = (action && action.duration) || (action && action.label ? 6000 : 3200);
+  UI._toastTimer = setTimeout(function(){ UI.els.toast.classList.remove('is-visible'); }, duration);
 };
 
 UI.setBusy = function(isBusy, message){
   var inOnboarding = !UI.els.onboarding.hidden;
+  document.body.setAttribute('aria-busy', isBusy ? 'true' : 'false');
   if (inOnboarding) {
     UI.els.dropzoneBusy.hidden = !isBusy;
+    UI.els.dropzoneBusy.setAttribute('aria-busy', isBusy ? 'true' : 'false');
     UI.els.dropzoneBusyText.textContent = isBusy ? message : '';
   } else if (isBusy) {
     UI.els.workspaceBusy.hidden = false;
+    UI.els.workspaceBusy.setAttribute('aria-busy', 'true');
     UI.els.workspaceBusyText.textContent = message;
     requestAnimationFrame(function(){ UI.els.workspaceBusy.classList.add('is-visible'); });
   } else {
     UI.els.workspaceBusy.classList.remove('is-visible');
     UI.els.workspaceBusy.hidden = true;
+    UI.els.workspaceBusy.setAttribute('aria-busy', 'false');
     UI.els.workspaceBusyText.textContent = '';
   }
 };
@@ -5772,7 +6326,7 @@ UI.closeManualEntry = function(){
   UI._manualOpener = null;
 };
 
-UI.openSheetPicker = function(workbook, sheetNames, fileName){
+UI.openSheetPicker = function(workbook, sheetNames, fileName, generation){
   UI._sheetPickerOpener = document.activeElement;
   UI.els.sheetList.innerHTML = '';
   sheetNames.forEach(function(name){
@@ -5781,9 +6335,10 @@ UI.openSheetPicker = function(workbook, sheetNames, fileName){
     btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sheets"/></svg><span></span>';
     btn.querySelector('span').textContent = name;
     btn.addEventListener('click', function(){
+      if (generation !== undefined && generation !== UI.loadGeneration) { UI.closeSheetPicker(); return; }
       var extracted = Data.extractSheet(workbook, name);
       UI.closeSheetPicker();
-      UI.applyRows(extracted.rows, extracted.fields, fileName + ' \u2014 ' + name, extracted.note);
+      UI.applyRows(extracted.rows, extracted.fields, fileName + ' \u2014 ' + name, extracted.note, generation);
     });
     UI.els.sheetList.appendChild(btn);
   });
@@ -5872,7 +6427,7 @@ UI.submitManualEntry = function(){
     var rawRow = data[r];
     var isEmpty = rawRow.every(function(v){ return !v || !String(v).trim(); });
     if (isEmpty) continue;
-    var obj = {};
+    var obj = Data.makeRow();
     fields.forEach(function(f, c){ obj[f] = rawRow[c] !== undefined ? rawRow[c] : ''; });
     rows.push(obj);
   }
@@ -5886,21 +6441,25 @@ UI.loadFile = function(file){
     UI.importDrawJSON(file);
     return;
   }
+  var generation = ++UI.loadGeneration;
   UI.clearError();
   UI.setBusy(true, 'Reading ' + file.name + '\u2026');
   Data.fromFile(file, function(res){
+    if (generation !== UI.loadGeneration) return;
     UI.setBusy(false);
     if (!res.ok) { UI.showError(res.message); return; }
-    if (res.needsSheetPick) { UI.openSheetPicker(res.workbook, res.sheetNames, file.name); return; }
-    UI.applyRows(res.rows, res.fields, file.name, res.note);
+    if (res.needsSheetPick) { UI.openSheetPicker(res.workbook, res.sheetNames, file.name, generation); return; }
+    UI.applyRows(res.rows, res.fields, file.name, res.note, generation);
   });
 };
 
 UI.importDrawJSON = function(file){
+  var generation = ++UI.loadGeneration;
   UI.clearError();
   UI.setBusy(true, 'Reading ' + file.name + '\u2026');
   var reader = new FileReader();
   reader.onload = function(){
+    if (generation !== UI.loadGeneration) return;
     UI.setBusy(false);
     var payload;
     try { payload = JSON.parse(reader.result); }
@@ -5908,27 +6467,46 @@ UI.importDrawJSON = function(file){
     if (UI.restoreDashboardState(payload, file.name)) UI.pushCommand();
   };
   reader.onerror = function(){
+    if (generation !== UI.loadGeneration) return;
     UI.setBusy(false);
     UI.showError('Couldn\u2019t read ' + file.name + '.');
   };
   reader.readAsText(file);
 };
 UI.loadCSVText = function(text, label){
+  var generation = ++UI.loadGeneration;
   UI.clearError();
   UI.setBusy(true, 'Reading pasted data\u2026');
   Data.fromCSVText(text, function(res){
+    if (generation !== UI.loadGeneration) return;
     UI.setBusy(false);
     if (!res.ok) { UI.showError(res.message); return; }
-    UI.applyRows(res.rows, res.fields, label);
+    UI.applyRows(res.rows, res.fields, label, null, generation);
   });
 };
 
-UI.applyRows = function(rows, fields, label, note){
+UI.applyRows = function(rows, fields, label, note, generation){
+  if (generation === undefined) generation = ++UI.loadGeneration;
   if (!rows || !rows.length) { UI.showError('That file doesn\u2019t have any rows to chart.'); return; }
-  var store = Data.buildColumnarStore(rows, fields);
-  Store.set({ dataset: store, sourceName: label, rawRows: rows, rawFields: fields });
+  var store;
+  try {
+    store = Data.buildColumnarStore(rows, fields);
+  } catch (err) {
+    UI.showError('Couldn\u2019t make sense of that data. Try a different file.');
+    return;
+  }
   var spec = Spec.autoRecommend(store.columns);
   if (!spec) { UI.showError('Couldn\u2019t find a column worth charting in ' + label + '.'); return; }
+  try {
+    Render.buildFacetedOption(spec, store.columns, null, null);
+  } catch (err) {
+    UI.showError('Couldn\u2019t build a chart from ' + label + '.');
+    return;
+  }
+  if (generation !== UI.loadGeneration) return;
+
+  UI.registerDatasetRevision(rows, fields, label);
+  Store.set({ dataset: store, sourceName: label, rawRows: rows, rawFields: fields });
 
   UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
@@ -5945,6 +6523,7 @@ UI.applyRows = function(rows, fields, label, note){
   UI.els.workspace.hidden = false;
   UI.setWorkspaceControlsVisible(true);
   requestAnimationFrame(function(){
+    if (generation !== UI.loadGeneration) return;
     var ok = UI.commitSpec(spec);
     if (ok) {
       UI.clearError();
@@ -5962,7 +6541,7 @@ UI.applyRows = function(rows, fields, label, note){
       } else if (note) {
         UI.toast(note);
       }
-      Persistence.saveDataset(rows, fields, label).then(function(saved){
+      Persistence.saveDatasetSerialized(rows, fields, label).then(function(saved){
         if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
       });
     } else {
@@ -6081,6 +6660,13 @@ UI.deleteChart = function(){
   });
 };
 
+function csvSafeField(v){
+  var s = String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function firstOf(v){ return Array.isArray(v) ? v[0] : v; }
+
 function triggerDownload(url, filename){
   var a = document.createElement('a');
   a.href = url;
@@ -6129,8 +6715,7 @@ function chartOptionWithTitle(option, titleText, baseW, baseH){
       return g2;
     });
     out.grid = wasArray ? grids : grids[0];
-  }
-  if (Array.isArray(out.series) && out.series[0] && out.series[0].type === 'pie') {
+  } else if (Array.isArray(out.series) && out.series[0] && out.series[0].type === 'pie') {
     out.series = out.series.slice();
     var s = Object.assign({}, out.series[0]);
     var origCenter = s.center || ['50%', '50%'];
@@ -6141,6 +6726,34 @@ function chartOptionWithTitle(option, titleText, baseW, baseH){
     var baseMin = Math.min(baseW, baseH);
     s.radius = origRadius.map(function(r){ return pxFromPercent(r, baseMin / 2); });
     out.series[0] = s;
+  } else if (out.radar) {
+    var radarWasArray = Array.isArray(out.radar);
+    var radars = (radarWasArray ? out.radar : [out.radar]).map(function(r){
+      var r2 = Object.assign({}, r);
+      var origCenter2 = r.center || ['50%', '50%'];
+      var rcx = pxFromPercent(origCenter2[0], baseW);
+      var rcy = titleHeight + pxFromPercent(origCenter2[1], baseH - titleHeight);
+      r2.center = [rcx, rcy];
+      var baseMin2 = Math.min(baseW, baseH - titleHeight);
+      r2.radius = pxFromPercent(Array.isArray(r.radius) ? r.radius[1] : r.radius, baseMin2 / 2);
+      return r2;
+    });
+    out.radar = radarWasArray ? radars : radars[0];
+  } else if (out.calendar) {
+    var calWasArray = Array.isArray(out.calendar);
+    var cals = (calWasArray ? out.calendar : [out.calendar]).map(function(c){ return Object.assign({}, c, { top: titleHeight + 24 }); });
+    out.calendar = calWasArray ? cals : cals[0];
+  } else if (out.parallel) {
+    var parWasArray = Array.isArray(out.parallel);
+    var pars = (parWasArray ? out.parallel : [out.parallel]).map(function(p){ return Object.assign({}, p, { top: titleHeight + 24 }); });
+    out.parallel = parWasArray ? pars : pars[0];
+  } else if (Array.isArray(out.series)) {
+    out.series = out.series.map(function(s){
+      if (s && (s.type === 'treemap' || s.type === 'funnel' || s.type === 'sunburst' || s.type === 'sankey')) {
+        return Object.assign({}, s, { top: titleHeight + 16 });
+      }
+      return s;
+    });
   }
   return { option: out, titleHeight: titleHeight };
 }
@@ -6208,49 +6821,100 @@ UI.exportSVG = function(panel){
   UI.toast('SVG downloaded');
 };
 
-UI.exportCSV = function(panel){
-  if (!panel.chart || !panel.spec) return;
-  var opt = panel.spec.facetField && Store.get().dataset
-    ? Render.buildOption(panel.spec, Store.get().dataset.columns, Filters.maskFor(panel.id), null)
-    : panel.chart.getOption();
-  var lines;
-  function seriesValue(v){ return (v && typeof v === 'object') ? v.value : v; }
-  function csvField(v){ return '"' + String(v).replace(/"/g,'""') + '"'; }
-  var _p = PLUGINS[panel.spec.type];
-  if (_p && _p.csv) lines = _p.csv(panel, opt);
-  if (!lines && _p) {
-    UI.toast('CSV export isn\u2019t available for this chart type.');
-    return;
+function extractBuiltinCSVLines(opt, spec, csvField, seriesValue){
+  if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
+    var plines = ['label,value'];
+    opt.series[0].data.forEach(function(d){ plines.push(csvField(d.name) + ',' + seriesValue(d)); });
+    return plines;
   }
-  if (!lines) {
-    if (opt.series && opt.series[0] && opt.series[0].type === 'pie') {
-      lines = ['label,value'];
-      opt.series[0].data.forEach(function(d){
-        lines.push(csvField(d.name) + ',' + seriesValue(d));
+  if (opt.series && opt.series.some(function(s){ return s.type === 'scatter'; })) {
+    var scatterSeries = (opt.series || []).filter(function(s){ return s.type === 'scatter' && !s._auxiliary; });
+    var hasColorCol = scatterSeries.length > 1;
+    var sHeader = titleCase(spec.xField) + ',' + titleCase(spec.yField);
+    if (hasColorCol && spec.colorField) sHeader += ',' + titleCase(spec.colorField);
+    var slines = [sHeader];
+    scatterSeries.forEach(function(s){
+      (s.data || []).forEach(function(p){
+        var xv, yv;
+        if (Array.isArray(p)) { xv = p[0]; yv = p[1]; }
+        else if (p && Array.isArray(p.value)) { xv = p.value[0]; yv = p.value[1]; }
+        else return;
+        var row = [xv, yv];
+        if (hasColorCol && spec.colorField) row.push(csvField(s.name || ''));
+        slines.push(row.join(','));
       });
-    } else if (opt.series && opt.series[0] && opt.series[0].type === 'scatter') {
-      lines = [titleCase(panel.spec.xField) + ',' + titleCase(panel.spec.yField)];
-      opt.series[0].data.forEach(function(p){ lines.push(p[0] + ',' + p[1]); });
-    } else if ((opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category') || (opt.yAxis && opt.yAxis[0] && opt.yAxis[0].type === 'category')) {
-      var axisIsX = !!(opt.xAxis && opt.xAxis[0] && opt.xAxis[0].type === 'category');
-      var catLabels = axisIsX ? opt.xAxis[0].data : opt.yAxis[0].data;
-      var seriesList = opt.series || [];
-      if (seriesList.length > 1) {
-        lines = ['label,' + seriesList.map(function(s){ return csvField(s.name || 'value'); }).join(',')];
-        for (var k=0;k<catLabels.length;k++){
-          var row = [csvField(catLabels[k])];
-          for (var si=0;si<seriesList.length;si++) row.push(seriesValue(seriesList[si].data[k]));
-          lines.push(row.join(','));
-        }
-      } else {
-        lines = ['label,value'];
-        var soloData = seriesList[0] ? seriesList[0].data : [];
-        for (var i=0;i<catLabels.length;i++) lines.push(csvField(catLabels[i]) + ',' + seriesValue(soloData[i]));
+    });
+    return slines;
+  }
+  var xAxis0 = firstOf(opt.xAxis);
+  var yAxis0 = firstOf(opt.yAxis);
+  if ((xAxis0 && xAxis0.type === 'category') || (yAxis0 && yAxis0.type === 'category')) {
+    var axisIsX = !!(xAxis0 && xAxis0.type === 'category');
+    var catLabels = axisIsX ? xAxis0.data : yAxis0.data;
+    var seriesList = (opt.series || []).filter(function(s){ return !s._auxiliary; });
+    var clines;
+    if (seriesList.length > 1) {
+      clines = ['label,' + seriesList.map(function(s){ return csvField(s.name || 'value'); }).join(',')];
+      for (var k=0;k<catLabels.length;k++){
+        var row2 = [csvField(catLabels[k])];
+        for (var si=0;si<seriesList.length;si++) row2.push(seriesValue(seriesList[si].data[k]));
+        clines.push(row2.join(','));
       }
     } else {
-      UI.toast('CSV export isn\u2019t available for this chart type.');
-      return;
+      clines = ['label,value'];
+      var soloData = seriesList[0] ? seriesList[0].data : [];
+      for (var i=0;i<catLabels.length;i++) clines.push(csvField(catLabels[i]) + ',' + seriesValue(soloData[i]));
     }
+    return clines;
+  }
+  return null;
+}
+
+UI.exportCSV = function(panel){
+  if (!panel.chart || !panel.spec) return;
+  function seriesValue(v){ return (v && typeof v === 'object') ? v.value : v; }
+  function csvField(v){ return csvSafeField(v); }
+  var lines;
+  var _p = PLUGINS[panel.spec.type];
+  if (_p && _p.csv) {
+    lines = _p.csv(panel, panel.chart.getOption());
+  } else if (panel.spec.facetField && Store.get().dataset) {
+    var columns = Store.get().dataset.columns;
+    var facetCol = findColumn(columns, panel.spec.facetField);
+    if (!facetCol) {
+      lines = extractBuiltinCSVLines(panel.chart.getOption(), panel.spec, csvField, seriesValue);
+    } else {
+      var baseMask = Filters.maskFor(panel.id);
+      var n = facetCol.values.length;
+      var counts2 = Object.create(null);
+      var order2 = [];
+      for (var fi = 0; fi < n; fi++) {
+        if (baseMask && !baseMask[fi]) continue;
+        var lbl = catRawLabel(facetCol, fi);
+        if (lbl === null) continue;
+        if (!counts2[lbl]) { counts2[lbl] = 0; order2.push(lbl); }
+        counts2[lbl]++;
+      }
+      order2.sort(function(a, b){ return counts2[b] - counts2[a]; });
+      var facetVals = order2.slice(0, 6);
+      var combined = null;
+      facetVals.forEach(function(fv){
+        var combinedMask = new Array(n);
+        for (var fj = 0; fj < n; fj++) combinedMask[fj] = (!baseMask || baseMask[fj]) && catRawLabel(facetCol, fj) === fv;
+        var facetOpt = Render.buildOption(panel.spec, columns, combinedMask, null);
+        var facetLines = extractBuiltinCSVLines(facetOpt, panel.spec, csvField, seriesValue);
+        if (!facetLines || facetLines.length < 2) return;
+        if (!combined) combined = [titleCase(panel.spec.facetField) + ',' + facetLines[0]];
+        facetLines.slice(1).forEach(function(l){ combined.push(csvField(fv) + ',' + l); });
+      });
+      lines = combined;
+    }
+  } else {
+    lines = extractBuiltinCSVLines(panel.chart.getOption(), panel.spec, csvField, seriesValue);
+  }
+  if (!lines || lines.length < 2) {
+    UI.toast('CSV export isn\u2019t available for this chart type.');
+    return;
   }
   var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   var url = URL.createObjectURL(blob);
@@ -6258,6 +6922,13 @@ UI.exportCSV = function(panel){
   URL.revokeObjectURL(url);
   UI.toast('CSV downloaded');
 };
+
+function jsonReplacerSafe(key, val){
+  if (typeof val === 'bigint') {
+    return (val >= Number.MIN_SAFE_INTEGER && val <= Number.MAX_SAFE_INTEGER) ? Number(val) : val.toString();
+  }
+  return val;
+}
 
 UI.exportDrawJSON = function(){
   var state = Store.get();
@@ -6272,7 +6943,14 @@ UI.exportDrawJSON = function(){
     activeIndex: UI.activeIndex,
     nextPanelId: UI._nextPanelId
   };
-  var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+  var json;
+  try {
+    json = JSON.stringify(payload, jsonReplacerSafe);
+  } catch (err) {
+    UI.toast('Couldn\u2019t export this dashboard.');
+    return;
+  }
+  var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   triggerDownload(url, (slugify(state.sourceName) || 'dashboard') + '.draw.json');
   URL.revokeObjectURL(url);
@@ -6283,9 +6961,12 @@ UI.exportDashboardPNG = function(){
   if (typeof echarts === 'undefined') return;
   var chartedPanels = UI.panels.filter(function(p){ return p.chart; });
   if (!chartedPanels.length) return;
-  var cellW = 800, cellH = 500;
+  var pixelRatio = 2;
+  var titleHeight = 40;
+  var cellW = 800, cellBaseH = 500;
+  var cellH = cellBaseH + titleHeight;
   var urls = chartedPanels.map(function(p){
-    return renderPanelDataURL(p, cellW, cellH, { type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
+    return renderPanelDataURL(p, cellW, cellBaseH, { type: 'png', pixelRatio: pixelRatio, backgroundColor: PALETTE.bg2 });
   });
   var images = new Array(urls.length);
   var failed = new Array(urls.length);
@@ -6314,15 +6995,15 @@ UI.exportDashboardPNG = function(){
     var cols = chartedPanels.length > 1 ? 2 : 1;
     var rows = Math.ceil(chartedPanels.length / cols);
     var canvas = document.createElement('canvas');
-    canvas.width = cellW * cols;
-    canvas.height = cellH * rows;
+    canvas.width = cellW * cols * pixelRatio;
+    canvas.height = cellH * rows * pixelRatio;
     var ctx = canvas.getContext('2d');
     ctx.fillStyle = PALETTE.bg2;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     images.forEach(function(img, i){
       if (!img) return;
       var col = i % cols, row = Math.floor(i / cols);
-      ctx.drawImage(img, col*cellW, row*cellH, cellW, cellH);
+      ctx.drawImage(img, col * cellW * pixelRatio, row * cellH * pixelRatio, cellW * pixelRatio, cellH * pixelRatio);
     });
     triggerDownload(canvas.toDataURL('image/png'), dashboardFilename('png'));
     UI.toast(failed.some(Boolean) ? 'Dashboard downloaded (some charts couldn\u2019t be included)' : 'Dashboard downloaded');
@@ -6371,9 +7052,11 @@ UI.renderInspector = function(){
     var classes = 'type-tile' + (isSelected ? ' is-selected' : '') + (isAvailable ? '' : ' is-unavailable');
     var badge = (t.value === recommendedType) ? '<svg class="tile-badge" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg>' : '';
     var iconId = (t.value === 'bar' && spec.seriesField) ? 'i-chart-stacked' : ('i-chart-' + t.value);
-    var titleAttr = isAvailable ? '' : (' title="' + escapeHtml(typeUnavailableReason[t.value] || 'Not available for this data') + '"');
+    var reasonText = typeUnavailableReason[t.value] || 'Not available for this data';
+    var titleAttr = isAvailable ? '' : (' title="' + escapeHtml(reasonText) + '"');
     var disabledAttr = isAvailable ? '' : ' disabled';
-    return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(t.label) + '" aria-pressed="' + isSelected + '"' + titleAttr + disabledAttr + '>' +
+    var ariaLabel = isAvailable ? t.label : (t.label + ' \u2014 ' + reasonText);
+    return '<button type="button" class="' + classes + '" data-type="' + t.value + '" aria-label="' + escapeHtml(ariaLabel) + '" aria-pressed="' + isSelected + '"' + titleAttr + disabledAttr + '>' +
       badge +
       '<svg viewBox="0 0 24 24" aria-hidden="true"><use href="#' + iconId + '"/></svg>' +
       '<span>' + escapeHtml(t.label) + '</span>' +
@@ -6409,6 +7092,7 @@ UI.renderInspector = function(){
   } else if (spec.type === 'bar' || spec.type === 'donut') {
     fieldsHtml += fieldRow('Category field', 'xField', catCols, spec.xField);
     var valueCols = numCols.filter(function(c){ return c.name !== spec.xField; });
+    if (spec.type === 'donut') valueCols = valueCols.filter(function(c){ return columnAllPositive(c); });
     fieldsHtml += fieldRowWithCount('Value field', 'yField', valueCols, spec.yField);
     fieldsHtml += aggRow(spec.aggregation);
     fieldsHtml += sortRow(spec.sortMode);
@@ -6446,7 +7130,11 @@ UI.renderInspector = function(){
   } else if (spec.type === 'histogram') {
     styleHtml += rangeRow('Buckets', 'buckets', spec.buckets || 16, 6, 32);
   }
-  styleHtml += fieldRowWithNone('Split into small multiples by', 'facetField', catCols, spec.facetField);
+  var BUILTIN_FACET_SUPPORT = { line: true, area: true, bar: true, donut: false, scatter: true, histogram: true };
+  var typeSupportsFacet = PLUGINS[spec.type] ? !!PLUGINS[spec.type].supportsFacet : !!BUILTIN_FACET_SUPPORT[spec.type];
+  if (typeSupportsFacet) {
+    styleHtml += fieldRowWithNone('Split into small multiples by', 'facetField', catCols, spec.facetField);
+  }
 
   UI.els.inspectorData.innerHTML = typeHtml + fieldsHtml;
   UI.els.inspectorStyle.innerHTML = '<h3>Style</h3>' + (styleHtml || '<p class="inspector-empty">Nothing to style for this chart yet.</p>');
@@ -6524,7 +7212,7 @@ UI.computeSpecFromField = function(role, value){
     var col = findColumn(Store.get().dataset.columns, spec.xField);
     if (col) spec.sortMode = Spec.defaultSortMode(col);
   }
-  if (role === 'xField' && PLUGINS[spec.type] && typeof PLUGINS[spec.type].sanitize === 'function') {
+  if (PLUGINS[spec.type] && typeof PLUGINS[spec.type].sanitize === 'function') {
     spec = PLUGINS[spec.type].sanitize(spec, UI.colsBag()) || spec;
   }
   if (!spec.titleCustom) spec.title = Spec.regenerateTitle(spec);
@@ -6538,9 +7226,13 @@ UI.updateSpecField = function(role, value){
 UI.updateSpecFieldLive = function(role, value){
   var spec = UI.computeSpecFromField(role, value);
   UI.currentSpec = spec;
-  var columns = Store.get().dataset ? Store.get().dataset.columns : [];
-  UI.renderChart(spec, columns);
   UI.syncTitleElement();
+  if (UI._liveUpdateFrame) return;
+  UI._liveUpdateFrame = requestAnimationFrame(function(){
+    UI._liveUpdateFrame = null;
+    var columns = Store.get().dataset ? Store.get().dataset.columns : [];
+    UI.renderChart(UI.currentSpec, columns);
+  });
 };
 
 UI.changeChartType = function(newType){
@@ -6576,6 +7268,7 @@ UI.changeChartType = function(newType){
     var c = pick(catCols, old.xField);
     if (!c) { UI.toast('Need a category column for that.'); return; }
     var v2Candidates = numCols.filter(function(col){ return col.name !== c.name; });
+    if (newType === 'donut') v2Candidates = v2Candidates.filter(function(col){ return columnAllPositive(col); });
     var v2 = old.yField ? pick(v2Candidates, old.yField) : null;
     newSpec = v2 ? Spec.buildCategoryNumeric(c, v2) : Spec.buildCategoryCount(c);
     newSpec.type = newType;
@@ -6754,8 +7447,19 @@ window.__drawSelfTest = function(){
           if (!optThemed || !optThemed.series) throw new Error('theme flip build failed');
         }
 
+        var normalizedOpt = opt;
+        if (typeof echarts !== 'undefined') {
+          var testDiv = document.createElement('div');
+          testDiv.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:400px;height:300px;';
+          document.body.appendChild(testDiv);
+          var testChart = echarts.init(testDiv, currentThemeName(), { renderer: 'canvas' });
+          testChart.setOption(opt);
+          normalizedOpt = testChart.getOption();
+          testChart.dispose();
+          document.body.removeChild(testDiv);
+        }
         if (PLUGINS[type] && typeof PLUGINS[type].csv === 'function') {
-          var csvLines = PLUGINS[type].csv({ spec: spec, id: 'selftest' }, opt);
+          var csvLines = PLUGINS[type].csv({ spec: spec, id: 'selftest' }, normalizedOpt);
           if (csvLines !== null && csvLines !== undefined && !Array.isArray(csvLines)) throw new Error('csv() must return an array or null');
         }
 
