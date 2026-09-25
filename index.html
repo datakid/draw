@@ -213,8 +213,6 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .workspace-row{display:flex;gap:var(--sp-5);align-items:flex-start;}
 .panel-grid{flex:1;min-width:0;display:grid;grid-template-columns:1fr;gap:var(--sp-5);}
 .panel-grid.has-2,.panel-grid.has-3,.panel-grid.has-4{grid-template-columns:repeat(2,1fr);}
-.panel-grid.has-3 > .chart-card:last-child:nth-child(odd),
-.panel-grid.has-4 > .chart-card:last-child:nth-child(odd){grid-column:1/-1;}
 .chart-card.is-active{box-shadow:0 0 0 2px var(--accent),0 1px 0 rgba(255,255,255,.06) inset,0 24px 48px -24px rgba(0,0,0,.55);}
 .chart-card{
   position:relative;
@@ -557,6 +555,13 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
   .chart-canvas{height:320px;}
   main{padding:0 var(--sp-4) 64px;}
   .panel-grid.has-2,.panel-grid.has-3,.panel-grid.has-4{grid-template-columns:1fr;}
+}
+.chart-card.is-h-sm .chart-canvas{height:300px;}
+.chart-card.is-h-lg .chart-canvas{height:560px;}
+.panel-grid > .chart-card.is-span-full{grid-column:1/-1;}
+@media (max-width:640px){
+  .chart-card.is-h-sm .chart-canvas{height:240px;}
+  .chart-card.is-h-lg .chart-canvas{height:420px;}
 }
 </style>
 </head>
@@ -1919,11 +1924,13 @@ var Spec = {};
 Spec.formatCompact = function(n){
   if (n === null || n === undefined || isNaN(n)) return '\u2014';
   var abs = Math.abs(n);
-  if (abs >= 1e9) return (n/1e9).toFixed(1).replace(/\.0$/,'') + 'B';
-  if (abs >= 1e6) return (n/1e6).toFixed(1).replace(/\.0$/,'') + 'M';
-  if (abs >= 1e3) return (n/1e3).toFixed(1).replace(/\.0$/,'') + 'K';
+  var t = function(v, s){ return v.toFixed(1).replace(/\.0$/, '') + s; };
+  if (abs >= 999.5e6) return t(n / 1e9, 'B');
+  if (abs >= 999.5e3) return t(n / 1e6, 'M');
+  if (abs >= 999.5) return t(n / 1e3, 'K');
   if (Number.isInteger(n)) return String(n);
-  return n.toFixed(2);
+  if (abs < 1) return String(Number(n.toPrecision(2)));
+  return String(Number(n.toFixed(2)));
 };
 
 Spec.formatExact = function(n, unit){
@@ -2736,7 +2743,7 @@ Render.buildOption = function(spec, columns, mask, selection){
         grid: { left: 16, right: 24, top: 24, bottom: 56, containLabel: true },
         xAxis: { type: 'category', data: tsMulti.labels },
         yAxis: { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: fmt } },
-        legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+        legend: { type: 'scroll', bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
         series: tsMulti.series.map(function(s){
           return {
             name: s.name,
@@ -2801,7 +2808,7 @@ Render.buildOption = function(spec, columns, mask, selection){
       var lastIdx = barMulti.labels.length - 1;
       var optionMulti = {
         grid: { left: 16, right: 24, top: 24, bottom: 56, containLabel: true },
-        legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+        legend: { type: 'scroll', bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
         series: barMulti.series.map(function(s){
           return {
             name: s.name,
@@ -2917,10 +2924,10 @@ Render.buildOption = function(spec, columns, mask, selection){
     var pieSelSet = selectedLabelSet(selection);
     return {
       tooltip: { trigger: 'item', valueFormatter: fmtTooltip },
-      legend: { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
+      legend: { type: 'scroll', bottom: 0, textStyle: { overflow: 'truncate', width: 100 } },
       series: [{
         type: 'pie',
-        radius: ['45%', '72%'],
+        radius: ['45%', '70%'], center: ['50%', '46%'],
         avoidLabelOverlap: true,
         itemStyle: { borderColor: PALETTE.bg2, borderWidth: 2 },
         label: showPieLabels ? { show: true, formatter: '{d}%', color: PALETTE.ink2, fontSize: 11 } : { show: false },
@@ -2988,7 +2995,7 @@ Render.buildOption = function(spec, columns, mask, selection){
       series = Object.keys(byCat).map(function(k){
         return { name: k, type: 'scatter', data: byCat[k], large: byCat[k].length > 2000, progressive: 2000 };
       });
-      legend = { bottom: 0, textStyle: { overflow: 'truncate', width: 100 } };
+      legend = { type: 'scroll', bottom: 0, textStyle: { overflow: 'truncate', width: 100 } };
     } else if (sizeCol) {
       series = [{ type: 'scatter', data: rawPoints.map(function(p){ return { value: [p.x, p.y], symbolSize: sizeFor(p.s) }; }), large: rawPoints.length > 2000, progressive: 2000 }];
     } else {
@@ -3016,7 +3023,7 @@ Render.buildOption = function(spec, columns, mask, selection){
           _auxiliary: true,
           z: 3
         }]);
-        legend = legend || { bottom: 0 };
+        legend = legend || { type: 'scroll', bottom: 0 };
       }
     }
 
@@ -3024,8 +3031,8 @@ Render.buildOption = function(spec, columns, mask, selection){
       grid: { left: 16, right: 24, top: 24, bottom: legend ? 56 : 32, containLabel: true },
       xAxis: isDateX
         ? { type: 'time', name: xLabel, nameLocation: 'middle', nameGap: 32 }
-        : { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 32 },
-      yAxis: { type: 'value', name: yLabel, nameLocation: 'middle', nameGap: 44 },
+        : { type: 'value', name: xLabel, nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: function(v){ return Spec.formatCompact(v); } } },
+      yAxis: { type: 'value', name: yLabel, nameLocation: 'middle', nameGap: 44, axisLabel: { formatter: function(v){ return Spec.formatCompact(v); } } },
       dataZoom: [
         { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
         { type: 'inside', yAxisIndex: 0, filterMode: 'none' }
@@ -3116,8 +3123,8 @@ Render.buildOption = function(spec, columns, mask, selection){
     var labels = counts.map(function(_, i){ return histogramBucketLabel(min + i*width, min + (i+1)*width, width, col.unit); });
     return {
       grid: { left: 16, right: 24, top: 24, bottom: 32, containLabel: true },
-      xAxis: { type: 'category', data: labels, axisLabel: { rotate: 30 } },
-      yAxis: { type: 'value', name: Spec.axisLabel(spec) },
+      xAxis: { type: 'category', data: labels, axisLabel: { rotate: labels.length > 8 ? 30 : 0 } },
+      yAxis: { type: 'value', name: Spec.axisLabel(spec), axisLabel: { formatter: function(v){ return Spec.formatCompact(v); } } },
       series: [{ type: 'bar', barMaxWidth: 28, itemStyle: { borderRadius: [4,4,0,0] }, data: counts }],
       tooltip: { trigger: 'axis' }
     };
@@ -5281,6 +5288,17 @@ function toggleRow(label, role, checked){
 function rangeRow(label, role, value, min, max){
   return '<div class="field-row"><label>' + escapeHtml(label) + ' (' + value + ')</label><input type="range" data-role="' + role + '" min="' + min + '" max="' + max + '" value="' + value + '"></div>';
 }
+function layoutRows(spec){
+  function sel(label, role, opts, cur){
+    return '<div class="field-row"><label>' + escapeHtml(label) + '</label>' +
+      '<select data-role="' + role + '" aria-label="' + escapeHtml(label) + '">' +
+      opts.map(function(o){ return '<option value="' + o[0] + '"' + (o[0] === cur ? ' selected' : '') + '>' + escapeHtml(o[1]) + '</option>'; }).join('') +
+      '</select></div>';
+  }
+  return '<h3 style="margin-top:16px">Size</h3>' +
+    sel('Width', 'panelSpan', [['auto', 'Auto'], ['full', 'Full row']], spec.panelSpan || 'auto') +
+    sel('Height', 'panelHeight', [['sm', 'Compact'], ['md', 'Standard'], ['lg', 'Tall']], spec.panelHeight || 'md');
+}
 
 Render.buildFacetedOption = function(spec, columns, mask, selection){
   var base = Render.buildOption(spec, columns, mask, selection);
@@ -5307,15 +5325,16 @@ Render.buildFacetedOption = function(spec, columns, mask, selection){
   var cols = Math.ceil(Math.sqrt(facetValues.length));
   var rows = Math.ceil(facetValues.length / cols);
   var gapX = 4, gapY = 8, labelH = 5;
-  var cellW = (100 - gapX * (cols - 1)) / cols;
-  var cellH = (100 - gapY * (rows - 1)) / rows - labelH;
+  var padL = 1, padT = 2, usableW = 97, usableH = base.legend ? 86 : 94;
+  var cellW = (usableW - gapX * (cols - 1)) / cols;
+  var cellH = (usableH - gapY * (rows - 1)) / rows - labelH;
 
   var grids = [], xAxes = [], yAxes = [], allSeries = [], graphics = [];
   facetValues.forEach(function(fv){
     var idx = grids.length;
     var r = Math.floor(idx / cols), c = idx % cols;
-    var left = c * (cellW + gapX);
-    var top = r * (cellH + labelH + gapY);
+    var left = padL + c * (cellW + gapX);
+    var top = padT + r * (cellH + labelH + gapY);
     var combinedMask = new Array(n);
     for (var i = 0; i < n; i++) {
       combinedMask[i] = (!mask || mask[i]) && catRawLabel(facetCol, i) === fv;
@@ -5323,7 +5342,7 @@ Render.buildFacetedOption = function(spec, columns, mask, selection){
     var facetOpt = Render.buildOption(spec, columns, combinedMask, selection);
     if (!facetOpt || !facetOpt.series || !facetOpt.grid || Array.isArray(facetOpt.grid)) return;
     var gi = grids.length;
-    grids.push({ left: left + '%', top: (top + labelH) + '%', width: cellW + '%', height: cellH + '%' });
+    grids.push({ left: left + '%', top: (top + labelH) + '%', width: cellW + '%', height: cellH + '%', containLabel: true });
     var xa = Object.assign({}, facetOpt.xAxis, { gridIndex: gi });
     var ya = Object.assign({}, facetOpt.yAxis, { gridIndex: gi });
     delete xa.name; delete ya.name;
@@ -5376,7 +5395,8 @@ UI.datasetRevisions = new Map();
 UI.loadGeneration = 0;
 
 UI.registerDatasetRevision = function(rows, fields, sourceName){
-  UI.datasetRevision++;
+  UI._revisionCounter = Math.max(UI._revisionCounter || 0, UI.datasetRevision) + 1;
+  UI.datasetRevision = UI._revisionCounter;
   UI.datasetRevisions.set(UI.datasetRevision, { rows: rows, fields: fields, sourceName: sourceName });
   var ids = Array.from(UI.datasetRevisions.keys()).sort(function(a, b){ return a - b; });
   while (ids.length > UI.MAX_DATASET_REVISIONS) {
@@ -5425,12 +5445,13 @@ UI.applyPanelsAndFiltersOnly = function(snapshot){
   }).filter(Boolean);
   if (!candidatePanels.length) return false;
 
-  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.panels.forEach(function(p){ if (p._ro) p._ro.disconnect(); if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
   UI.purgeExportMenus();
   UI.panels = candidatePanels;
   UI._nextPanelId = regenerated.nextPanelId || UI.panels.length;
   Filters.list = regenerated.filters;
+  Filters.recompute(dataset.columns, dataset.rowCount, UI.panels.map(function(p){ return p.id; }));
 
   UI.panels.forEach(function(p){
     UI.mountPanel(p);
@@ -5442,7 +5463,7 @@ UI.applyPanelsAndFiltersOnly = function(snapshot){
     c.classList.toggle('is-active', i === UI.activeIndex);
   });
   UI.clearError();
-  UI.refreshAllPanels();
+  UI.renderFilterPills();
   Persistence.saveDashboard();
   return true;
 };
@@ -5497,7 +5518,7 @@ UI.updateUndoRedoButtons = function(){
 };
 
 UI.resetToEmpty = function(){
-  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.panels.forEach(function(p){ if (p._ro) p._ro.disconnect(); if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
   UI.purgeExportMenus();
   UI.panels = [];
@@ -5634,8 +5655,13 @@ UI.init = function(){
     if (e.target === UI.els.sheetPickerOverlay) UI.closeSheetPicker();
   });
   window.addEventListener('keydown', function(e){
-    if (e.key === 'Escape' && !UI.els.manualOverlay.hidden) UI.closeManualEntry();
-    if (e.key === 'Escape' && !UI.els.sheetPickerOverlay.hidden) UI.closeSheetPicker();
+    if (e.key !== 'Escape') return;
+    if (!UI.els.manualOverlay.hidden) { UI.closeManualEntry(); return; }
+    if (!UI.els.sheetPickerOverlay.hidden) { UI.closeSheetPicker(); return; }
+    if (e.defaultPrevented) return;
+    var ae = document.activeElement;
+    if (ae && ae.classList && ae.classList.contains('chart-title')) return;
+    if (UI.els.inspector && !UI.els.inspector.hidden) UI.closeInspector();
   });
   trapFocus(UI.els.manualOverlay, UI.els.manualOverlay.querySelector('.modal'));
   trapFocus(UI.els.sheetPickerOverlay, UI.els.sheetPickerOverlay.querySelector('.modal'));
@@ -5653,7 +5679,8 @@ UI.init = function(){
 
   window.addEventListener('keydown', function(e){
     var mod = e.metaKey || e.ctrlKey;
-    if (!mod || (document.activeElement && document.activeElement.isContentEditable)) return;
+    var ae = document.activeElement;
+    if (!mod || (ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT'))) return;
     var key = e.key.toLowerCase();
     if (key === 'z' && e.shiftKey) { e.preventDefault(); UI.redo(); }
     else if (key === 'z') { e.preventDefault(); UI.undo(); }
@@ -5713,6 +5740,17 @@ UI.mountPanel = function(panel){
   var card = wrapper.firstChild;
   UI.els.panelGrid.appendChild(card);
   panel.el = card.querySelector('.chart-canvas');
+  if (typeof ResizeObserver !== 'undefined') {
+    var roFrame = null;
+    panel._ro = new ResizeObserver(function(){
+      if (roFrame) return;
+      roFrame = requestAnimationFrame(function(){
+        roFrame = null;
+        if (panel.chart && !panel.chart.isDisposed()) panel.chart.resize();
+      });
+    });
+    panel._ro.observe(panel.el);
+  }
   panel._emptyStateEl = card.querySelector('.panel-empty-state');
   panel._noteEl = card.querySelector('.panel-data-note');
   panel._emptyStateEl.querySelector('[data-action="clear-filters"]').addEventListener('click', function(){
@@ -5872,6 +5910,21 @@ UI.purgeExportMenus = function(){
 UI.updatePanelGridLayout = function(){
   var n = UI.panels.length;
   UI.els.panelGrid.className = 'panel-grid has-' + Math.min(Math.max(n, 1), 4);
+  var col = 0;
+  UI.panels.forEach(function(p, i){
+    var card = p.el && p.el.closest('.chart-card');
+    if (!card) return;
+    var spec = p.spec || {};
+    card.classList.toggle('is-h-sm', spec.panelHeight === 'sm');
+    card.classList.toggle('is-h-lg', spec.panelHeight === 'lg');
+    var full = spec.panelSpan === 'full';
+    if (!full && col === 0 && n > 1) {
+      var next = UI.panels[i + 1];
+      if (!next || (next.spec && next.spec.panelSpan === 'full')) full = true;
+    }
+    card.classList.toggle('is-span-full', full);
+    col = full ? 0 : (col === 0 ? 1 : 0);
+  });
 };
 
 UI.focusPanel = function(index){
@@ -5883,12 +5936,18 @@ UI.focusPanel = function(index){
   if (UI.els.inspector && !UI.els.inspector.hidden) UI.renderInspector();
 };
 
+UI.MAX_PANELS = 6;
 UI.addChart = function(){
   var dataset = Store.get().dataset;
   if (!dataset) return;
+  if (UI.panels.length >= UI.MAX_PANELS) { UI.toast('Dashboards hold up to ' + UI.MAX_PANELS + ' charts.'); return; }
   var candidates = Spec.candidates(dataset.columns);
   if (!candidates.length) { UI.toast('No more chart types available for this data.'); return; }
-  var candidate = candidates[UI.panels.length % candidates.length];
+  var sig = function(s){ return s ? [s.type, s.xField, s.yField, s.seriesField].join('|') : ''; };
+  var used = {};
+  UI.panels.forEach(function(p){ used[sig(p.spec)] = true; });
+  var fresh = candidates.filter(function(c){ return !used[sig(c.spec)]; });
+  var candidate = fresh.length ? fresh[0] : candidates[UI.panels.length % candidates.length];
   var newPanel = {
     id: 'panel-' + (UI._nextPanelId++),
     spec: candidate.spec,
@@ -6051,17 +6110,19 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
   }
 
   var revisionId = (opts && opts.datasetRevisionId) || UI.registerDatasetRevision(payload.rows, payload.fields, payload.sourceName || sourceLabel);
+  UI.datasetRevision = revisionId;
   UI.loadGeneration++;
   Store.set({ dataset: store, sourceName: payload.sourceName || sourceLabel, rawRows: payload.rows, rawFields: payload.fields });
 
-  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.panels.forEach(function(p){ if (p._ro) p._ro.disconnect(); if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
   UI.purgeExportMenus();
   UI.panels = candidatePanels;
   if (hadUnknownType) UI.toast('One chart used a type this version doesn\u2019t have');
   else if (newerSchema) UI.toast('This file was saved by a newer version of Draw \u2014 some charts may not look right');
-  UI._nextPanelId = payload.nextPanelId || UI.panels.length;
-  Filters.list = payload.filters ? JSON.parse(JSON.stringify(payload.filters)) : [];
+  UI._nextPanelId = Math.max(regenerated.nextPanelId || 0, UI.panels.length);
+  Filters.list = regenerated.filters.slice();
+  Filters.recompute(store.columns, store.rowCount, UI.panels.map(function(p){ return p.id; }));
 
   UI.panels.forEach(function(p){
     UI.mountPanel(p);
@@ -6077,11 +6138,13 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
   UI.els.workspace.hidden = false;
   UI.setWorkspaceControlsVisible(true);
   UI.clearError();
-  UI.refreshAllPanels();
+  UI.renderFilterPills();
   Persistence.saveDashboard();
-  Persistence.saveDatasetSerialized(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
-    if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
-  });
+  if (!(opts && opts.skipDatasetSave)) {
+    Persistence.saveDatasetSerialized(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
+      if (saved === false) UI.toast('Dashboard layout will be remembered, but this file is too large to restore automatically next time.');
+    });
+  }
 
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
@@ -6090,9 +6153,12 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
 };
 
 UI.restoreSession = function(){
+  if (window.__drawPendingDrop || window.__drawPendingPasteText) return Promise.resolve();
   var dashboard = Persistence.loadDashboard();
   if (!dashboard) return Promise.resolve();
+  var gen = UI.loadGeneration;
   return Persistence.loadDataset().then(function(saved){
+    if (gen !== UI.loadGeneration || window.__drawPendingDrop || window.__drawPendingPasteText) return;
     if (!saved || !saved.rows || !saved.rows.length) return;
     var ok = UI.restoreDashboardState({
       rows: saved.rows,
@@ -6200,12 +6266,13 @@ UI.wireChartInteractions = function(panel){
     } else {
       Filters.remove(panel.id, spec.yField);
     }
-    UI.refreshAllPanels(panel.id);
+    if (!panel._dzFrame) panel._dzFrame = requestAnimationFrame(function(){ panel._dzFrame = null; UI.refreshAllPanels(panel.id); });
     clearTimeout(datazoomPushTimer);
     datazoomPushTimer = setTimeout(function(){ UI.pushCommand(); }, 400);
   });
 
-  if (panel.el) {
+  if (panel.el && !panel._kbdWired) {
+    panel._kbdWired = true;
     panel.el.setAttribute('tabindex', '0');
     panel._kbdFocusIndex = -1;
     panel.el.addEventListener('keydown', function(e){
@@ -6508,7 +6575,7 @@ UI.applyRows = function(rows, fields, label, note, generation){
   UI.registerDatasetRevision(rows, fields, label);
   Store.set({ dataset: store, sourceName: label, rawRows: rows, rawFields: fields });
 
-  UI.panels.forEach(function(p){ if (p.chart) p.chart.dispose(); });
+  UI.panels.forEach(function(p){ if (p._ro) p._ro.disconnect(); if (p.chart) p.chart.dispose(); });
   UI.els.panelGrid.innerHTML = '';
   UI.purgeExportMenus();
   UI.panels = [{ id: 'panel-0', spec: null, chart: null, el: null }];
@@ -6587,6 +6654,7 @@ UI.commitSpec = function(newSpec){
   var panelId = UI.panels[UI.activeIndex].id;
   var fieldChanged = oldSpec && (oldSpec.xField !== newSpec.xField || oldSpec.yField !== newSpec.yField);
   UI.currentSpec = newSpec;
+  UI.updatePanelGridLayout();
   UI.syncTitleElement();
   if (fieldChanged && Filters.list.some(function(f){ return f.panelId === panelId; })) {
     Filters.list = Filters.list.filter(function(f){ return f.panelId !== panelId; });
@@ -6628,6 +6696,7 @@ UI.deleteChart = function(){
   var index = UI.activeIndex;
   var panel = UI.panels[index];
   if (!panel) return;
+  if (panel._ro) panel._ro.disconnect();
   if (panel.chart) panel.chart.dispose();
   var card = panel.el && panel.el.closest('.chart-card');
   if (card && card.parentNode) card.parentNode.removeChild(card);
@@ -6655,6 +6724,7 @@ UI.deleteChart = function(){
   if (!UI.els.inspector.hidden) UI.renderInspector();
   UI.refreshAllPanels();
   UI.pushCommand();
+  UI.toast('Chart deleted', { label: 'Undo', onClick: function(){ UI.undo(); } });
   requestAnimationFrame(function(){
     UI.panels.forEach(function(p){ if (p.chart) p.chart.resize(); });
   });
@@ -6662,7 +6732,7 @@ UI.deleteChart = function(){
 
 function csvSafeField(v){
   var s = String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s;
   return '"' + s.replace(/"/g, '""') + '"';
 }
 function firstOf(v){ return Array.isArray(v) ? v[0] : v; }
@@ -6703,6 +6773,19 @@ function pxFromPercent(val, base){
   return base / 2;
 }
 
+function exportOptionFor(panel){
+  var ds = Store.get().dataset;
+  if (!ds || !panel.spec) return panel.chart.getOption();
+  try {
+    var opt = Render.buildFacetedOption(panel.spec, ds.columns, Filters.maskFor(panel.id), Filters.ownFilter(panel.id));
+    var live = panel.chart.getOption();
+    if (live && live.dataZoom && opt.dataZoom) opt.dataZoom = live.dataZoom;
+    return opt;
+  } catch (err) {
+    return panel.chart.getOption();
+  }
+}
+
 function chartOptionWithTitle(option, titleText, baseW, baseH){
   var titleHeight = 40;
   var out = Object.assign({}, option);
@@ -6711,10 +6794,23 @@ function chartOptionWithTitle(option, titleText, baseW, baseH){
     var wasArray = Array.isArray(out.grid);
     var grids = (wasArray ? out.grid : [out.grid]).map(function(g){
       var g2 = Object.assign({}, g);
-      g2.top = (typeof g.top === 'number' ? g.top : 24) + titleHeight;
+      ['top', 'bottom', 'height'].forEach(function(k){
+        if (typeof g2[k] === 'string' && g2[k].slice(-1) === '%') g2[k] = pxFromPercent(g2[k], baseH);
+      });
+      if (typeof g2.top === 'number') g2.top = g2.top + titleHeight;
+      else if (g2.bottom === undefined) g2.top = 24 + titleHeight;
       return g2;
     });
     out.grid = wasArray ? grids : grids[0];
+    if (Array.isArray(out.graphic)) {
+      out.graphic = out.graphic.map(function(el){
+        if (!el || typeof el !== 'object' || el.elements) return el;
+        var e2 = Object.assign({}, el);
+        if (typeof e2.top === 'string' && e2.top.slice(-1) === '%') e2.top = titleHeight + pxFromPercent(e2.top, baseH);
+        else if (typeof e2.top === 'number') e2.top = e2.top + titleHeight;
+        return e2;
+      });
+    }
   } else if (Array.isArray(out.series) && out.series[0] && out.series[0].type === 'pie') {
     out.series = out.series.slice();
     var s = Object.assign({}, out.series[0]);
@@ -6760,7 +6856,7 @@ function chartOptionWithTitle(option, titleText, baseW, baseH){
 
 function renderPanelDataURL(panel, baseW, baseH, dataURLOptions){
   if (!panel.chart || typeof echarts === 'undefined') return null;
-  var built = chartOptionWithTitle(panel.chart.getOption(), panel.spec && panel.spec.title, baseW, baseH);
+  var built = chartOptionWithTitle(exportOptionFor(panel), panel.spec && panel.spec.title, baseW, baseH);
   var offscreen = document.createElement('div');
   offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
   document.body.appendChild(offscreen);
@@ -6792,9 +6888,15 @@ UI.copyChartToClipboard = function(panel){
   var baseW = (panel.el && panel.el.clientWidth) || 800;
   var baseH = (panel.el && panel.el.clientHeight) || 500;
   var url = renderPanelDataURL(panel, baseW, baseH, { type: 'png', pixelRatio: 2, backgroundColor: PALETTE.bg2 });
-  fetch(url).then(function(res){ return res.blob(); }).then(function(blob){
-    return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]);
-  }).then(function(){
+  if (!url) { UI.toast('Couldn\u2019t copy the chart.'); return; }
+  var blobPromise = fetch(url).then(function(res){ return res.blob(); });
+  var writePromise;
+  try {
+    writePromise = navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blobPromise })]);
+  } catch (err) {
+    writePromise = blobPromise.then(function(blob){ return navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })]); });
+  }
+  writePromise.then(function(){
     UI.toast('Chart copied to clipboard');
   }).catch(function(){
     UI.toast('Couldn\u2019t copy the chart.');
@@ -6804,7 +6906,7 @@ UI.copyChartToClipboard = function(panel){
 UI.exportSVG = function(panel){
   if (!panel.chart || typeof echarts === 'undefined') return;
   var baseW = 800, baseH = 500;
-  var built = chartOptionWithTitle(panel.chart.getOption(), panel.spec && panel.spec.title, baseW, baseH);
+  var built = chartOptionWithTitle(exportOptionFor(panel), panel.spec && panel.spec.title, baseW, baseH);
   var offscreen = document.createElement('div');
   offscreen.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:' + baseW + 'px;height:' + (baseH + built.titleHeight) + 'px;';
   document.body.appendChild(offscreen);
@@ -6817,7 +6919,7 @@ UI.exportSVG = function(panel){
   var blob = new Blob([svgStr], { type: 'image/svg+xml' });
   var url = URL.createObjectURL(blob);
   triggerDownload(url, panelFilename(panel, 'svg'));
-  URL.revokeObjectURL(url);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
   UI.toast('SVG downloaded');
 };
 
@@ -6919,7 +7021,7 @@ UI.exportCSV = function(panel){
   var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   var url = URL.createObjectURL(blob);
   triggerDownload(url, panelFilename(panel, 'csv'));
-  URL.revokeObjectURL(url);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
   UI.toast('CSV downloaded');
 };
 
@@ -6953,7 +7055,7 @@ UI.exportDrawJSON = function(){
   var blob = new Blob([json], { type: 'application/json' });
   var url = URL.createObjectURL(blob);
   triggerDownload(url, (slugify(state.sourceName) || 'dashboard') + '.draw.json');
-  URL.revokeObjectURL(url);
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 1500);
   UI.toast('Dashboard exported');
 };
 
@@ -7136,6 +7238,7 @@ UI.renderInspector = function(){
     styleHtml += fieldRowWithNone('Split into small multiples by', 'facetField', catCols, spec.facetField);
   }
 
+  styleHtml += layoutRows(spec);
   UI.els.inspectorData.innerHTML = typeHtml + fieldsHtml;
   UI.els.inspectorStyle.innerHTML = '<h3>Style</h3>' + (styleHtml || '<p class="inspector-empty">Nothing to style for this chart yet.</p>');
 
@@ -7215,6 +7318,11 @@ UI.computeSpecFromField = function(role, value){
   if (PLUGINS[spec.type] && typeof PLUGINS[spec.type].sanitize === 'function') {
     spec = PLUGINS[spec.type].sanitize(spec, UI.colsBag()) || spec;
   }
+  if (role === 'panelSpan' || role === 'panelHeight') spec[role] = value;
+  if (UI.currentSpec) {
+    if (spec.panelSpan === undefined && UI.currentSpec.panelSpan) spec.panelSpan = UI.currentSpec.panelSpan;
+    if (spec.panelHeight === undefined && UI.currentSpec.panelHeight) spec.panelHeight = UI.currentSpec.panelHeight;
+  }
   if (!spec.titleCustom) spec.title = Spec.regenerateTitle(spec);
   return spec;
 };
@@ -7253,6 +7361,8 @@ UI.changeChartType = function(newType){
     var ns = PLUGINS[newType].makeSpec(old, colsBag);
     if (!ns) { UI.toast(PLUGINS[newType].reason); return; }
     if (old && old.titleCustom) { ns.title = old.title; ns.titleCustom = true; }
+    if (old && old.panelSpan) ns.panelSpan = old.panelSpan;
+    if (old && old.panelHeight) ns.panelHeight = old.panelHeight;
     UI.commitSpec(ns);
     return;
   }
@@ -7286,6 +7396,8 @@ UI.changeChartType = function(newType){
   }
   if (!newSpec) return;
   if (old && old.titleCustom) { newSpec.title = old.title; newSpec.titleCustom = true; }
+  if (old && old.panelSpan) newSpec.panelSpan = old.panelSpan;
+  if (old && old.panelHeight) newSpec.panelHeight = old.panelHeight;
   UI.commitSpec(newSpec);
 };
 
@@ -7490,7 +7602,7 @@ document.addEventListener('DOMContentLoaded', function(){
     return;
   }
   registerKilnTheme();
-  UI.restoreSession().then(drainPendingBoot);
+  UI.restoreSession().then(drainPendingBoot, drainPendingBoot);
 });
 </script>
 </body>
