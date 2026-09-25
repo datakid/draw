@@ -5464,6 +5464,7 @@ UI.applyPanelsAndFiltersOnly = function(snapshot){
   });
   UI.clearError();
   UI.renderFilterPills();
+  if (UI.els.inspector && !UI.els.inspector.hidden) UI.renderInspector();
   Persistence.saveDashboard();
   return true;
 };
@@ -6139,6 +6140,7 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
   UI.setWorkspaceControlsVisible(true);
   UI.clearError();
   UI.renderFilterPills();
+  if (UI.els.inspector && !UI.els.inspector.hidden) UI.renderInspector();
   Persistence.saveDashboard();
   if (!(opts && opts.skipDatasetSave)) {
     Persistence.saveDatasetSerialized(payload.rows, payload.fields, payload.sourceName || sourceLabel).then(function(saved){
@@ -6153,12 +6155,12 @@ UI.restoreDashboardState = function(payload, sourceLabel, opts){
 };
 
 UI.restoreSession = function(){
-  if (window.__drawPendingDrop || window.__drawPendingPasteText) return Promise.resolve();
+  if (window.__drawPendingDrop || (window.__drawPendingPasteText && looksLikePastedTable(window.__drawPendingPasteText))) return Promise.resolve();
   var dashboard = Persistence.loadDashboard();
   if (!dashboard) return Promise.resolve();
   var gen = UI.loadGeneration;
   return Persistence.loadDataset().then(function(saved){
-    if (gen !== UI.loadGeneration || window.__drawPendingDrop || window.__drawPendingPasteText) return;
+    if (gen !== UI.loadGeneration || window.__drawPendingDrop || (window.__drawPendingPasteText && looksLikePastedTable(window.__drawPendingPasteText))) return;
     if (!saved || !saved.rows || !saved.rows.length) return;
     var ok = UI.restoreDashboardState({
       rows: saved.rows,
