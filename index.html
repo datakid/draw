@@ -1011,6 +1011,10 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
 <script src="./vendor/papaparse.min.js"></script>
 <script src="./vendor/echarts.min.js"></script>
 <script>
+if (typeof Papa === 'undefined') document.write('<' + 'script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"><' + '/script>');
+if (typeof echarts === 'undefined') document.write('<' + 'script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"><' + '/script>');
+</script>
+<script>
 'use strict';
 var KILN_CATEGORICAL = ['#E07A55','#63B3A4','#E9B860','#9A86C9','#C4718E','#86A85F','#5E93BE','#CFA88C'];
 
@@ -1651,6 +1655,19 @@ Data.loadXLSXLib = function(cb){
     Data._xlsxLoading = null;
   };
   s.onerror = function(){
+    if (!s.dataset.cdn) {
+      s.dataset.cdn = '1';
+      var alt = document.createElement('script');
+      alt.dataset.cdn = '1';
+      alt.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      alt.onload = s.onload;
+      alt.onerror = function(){
+        Data._xlsxLoading.forEach(function(fn){ fn(false); });
+        Data._xlsxLoading = null;
+      };
+      document.head.appendChild(alt);
+      return;
+    }
     Data._xlsxLoading.forEach(function(fn){ fn(false); });
     Data._xlsxLoading = null;
   };
@@ -3245,7 +3262,7 @@ Stat.boxStats = function(sorted){
   return { q1: q1, med: med, q3: q3, lo: lo, hi: hi, outliers: outliers };
 };
 
-Stat.kde = function(sorted, gridSize, bwMultiplier){
+Stat.kde = function(sorted, gridSize, bwMultiplier, cut){
   gridSize = gridSize || 64;
   if (!sorted.length) return { xs: [], ys: [] };
   if (sorted.length > 5000) sorted = Stat.thin(sorted, 5000);
@@ -3264,7 +3281,7 @@ Stat.kde = function(sorted, gridSize, bwMultiplier){
   var h = 0.9 * spread * Math.pow(n, -0.2) * (bwMultiplier || 1);
   if (!h || !isFinite(h) || h === 0) h = ((sorted[n - 1] - sorted[0]) / 20) || 1;
   var minV = sorted[0], maxV = sorted[n - 1];
-  var pad = (maxV - minV) * 0.1 || 1;
+  var pad = cut != null ? cut * h : ((maxV - minV) * 0.1 || 1);
   var lo = minV - pad, hi = maxV + pad;
   var xs = new Array(gridSize), ys = new Array(gridSize);
   var step = (hi - lo) / (gridSize - 1);
@@ -4004,8 +4021,8 @@ registerChart({
       var sorted = g.values.slice().sort(function(a, b){ return a - b; });
       var n = sorted.length;
       var stats = Stat.boxStats(sorted);
-      if (n < 8) return { mode: 'box', stats: stats, n: n };
-      var kde = Stat.kde(sorted, 48, bw);
+      if (n < 5 || sorted[0] === sorted[n - 1]) return { mode: 'box', stats: stats, n: n };
+      var kde = Stat.kde(sorted, 120, bw, 2);
       var maxDensity = kde.ys.reduce(function(m, y){ return Math.max(m, y); }, 1e-9);
       return { mode: 'violin', xs: kde.xs, ys: kde.ys, maxDensity: maxDensity, stats: stats, n: n };
     });
@@ -4026,6 +4043,7 @@ registerChart({
 
     var series = [{
       type: 'custom',
+      colorBy: 'data',
       renderItem: function(params, api){
         var gi = params.dataIndex;
         var p = profiles[gi];
@@ -4039,7 +4057,7 @@ registerChart({
           var q1 = api.coord([gi, s.q1]);
           var q3 = api.coord([gi, s.q3]);
           var med = api.coord([gi, s.med]);
-          var boxHalfPx = Math.abs(api.size([halfWidth * 0.45, 0])[0]);
+          var boxHalfPx = Math.abs(api.size([1, 0])[0]) * halfWidth * 0.45;
           return {
             type: 'group',
             children: [
@@ -4050,28 +4068,35 @@ registerChart({
           };
         }
         var n = p.xs.length;
-        var rightPts = new Array(n), leftPts = new Array(n);
+        var fullPx = Math.abs(api.size([1, 0])[0]) * halfWidth;
+        var center = api.coord([gi, p.stats.med])[0];
+        var rightPts = [], leftPts = [];
+        var y0 = api.coord([gi, p.xs[0]])[1];
+        rightPts.push([center, y0]);
         for (var i = 0; i < n; i++){
-          var w = (p.ys[i] / p.maxDensity) * halfWidth;
-          var pt = api.coord([gi, p.xs[i]]);
-          var wPix = Math.abs(api.size([w, 0])[0]);
-          rightPts[i] = [pt[0] + wPix, pt[1]];
-          leftPts[i] = [pt[0] - wPix, pt[1]];
+          var wPix = (p.ys[i] / p.maxDensity) * fullPx;
+          var py = api.coord([gi, p.xs[i]])[1];
+          rightPts.push([center + wPix, py]);
+          leftPts.push([center - wPix, py]);
         }
-        var poly = rightPts.concat(leftPts.slice().reverse());
+        rightPts.push([center, api.coord([gi, p.xs[n - 1]])[1]]);
+        var poly = rightPts.concat(leftPts.reverse());
         var children = [
-          { type: 'polygon', shape: { points: poly }, style: { fill: color, opacity: 0.55, stroke: color, lineWidth: 1 } }
+          { type: 'polygon', shape: { points: poly, smooth: 0.2 }, style: { fill: color, opacity: 0.78, stroke: PALETTE.ink2, lineWidth: 1 } }
         ];
+        var innerInk = '#2A2430';
         if (showBox && p.stats) {
+          var lob = api.coord([gi, p.stats.lo]);
+          var hib = api.coord([gi, p.stats.hi]);
           var q1b = api.coord([gi, p.stats.q1]);
           var q3b = api.coord([gi, p.stats.q3]);
-          var boxHalfPx2 = Math.abs(api.size([halfWidth * 0.14, 0])[0]);
-          children.push({ type: 'rect', shape: { x: q3b[0] - boxHalfPx2, y: q3b[1], width: boxHalfPx2 * 2, height: Math.max(1, q1b[1] - q3b[1]) }, style: { fill: PALETTE.bg2, opacity: 0.65 } });
+          var boxHalf = Math.max(2.5, Math.min(7, fullPx * 0.07));
+          children.push({ type: 'line', shape: { x1: center, y1: lob[1], x2: center, y2: hib[1] }, style: { stroke: innerInk, lineWidth: 1.4, opacity: 0.85 } });
+          children.push({ type: 'rect', shape: { x: center - boxHalf, y: q3b[1], width: boxHalf * 2, height: Math.max(1, q1b[1] - q3b[1]), r: 1 }, style: { fill: innerInk, opacity: 0.85 } });
         }
         if (showMedian && p.stats) {
           var medb = api.coord([gi, p.stats.med]);
-          var medHalfPx = Math.abs(api.size([halfWidth * 0.85, 0])[0]);
-          children.push({ type: 'line', shape: { x1: medb[0] - medHalfPx, y1: medb[1], x2: medb[0] + medHalfPx, y2: medb[1] }, style: { stroke: PALETTE.ink, lineWidth: 2 } });
+          children.push({ type: 'circle', shape: { cx: center, cy: medb[1], r: Math.max(2.5, Math.min(4.5, fullPx * 0.05)) }, style: { fill: '#ffffff', stroke: innerInk, lineWidth: 1 } });
         }
         return { type: 'group', children: children };
       },
