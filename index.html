@@ -425,7 +425,79 @@ main{max-width:1120px;margin:0 auto;padding:0 var(--sp-5) 96px;}
 .toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);}
 .toggle-row:last-child{margin-bottom:0;}
 .toggle-row label{font-size:14px;color:var(--ink-2);}
-.toggle-row input[type=checkbox]{accent-color:var(--accent);width:18px;height:18px;}
+.toggle-row input[type=checkbox]{
+  appearance:none;-webkit-appearance:none;margin:0;flex-shrink:0;
+  position:relative;width:34px;height:20px;border-radius:var(--radius-pill);
+  background:var(--glass-strong);border:1px solid var(--hairline);cursor:pointer;
+  transition:background .18s var(--ease),border-color .18s var(--ease);
+}
+.toggle-row input[type=checkbox]::after{
+  content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--ink-2);transition:transform .18s var(--ease),background .18s var(--ease);
+}
+.toggle-row input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent);}
+.toggle-row input[type=checkbox]:checked::after{transform:translateX(14px);background:var(--on-accent);}
+.toggle-row input[type=checkbox]:hover{border-color:var(--accent);}
+.field-row input[type=range]{
+  appearance:none;-webkit-appearance:none;height:4px;margin:8px 0;
+  background:var(--glass-strong);border-radius:var(--radius-pill);cursor:pointer;
+}
+.field-row input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+  background:var(--accent);border:3px solid var(--bg-2);box-shadow:0 0 0 1px var(--accent);
+}
+.field-row input[type=range]::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;background:var(--accent);border:3px solid var(--bg-2);box-shadow:0 0 0 1px var(--accent);
+}
+.field-check input[type=checkbox]{width:14px;height:14px;margin:0;}
+.field-check:has(input:checked){border-color:var(--accent);color:var(--ink);background:var(--accent-quiet);}
+.dd-btn{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  padding:10px 12px;
+  background:var(--glass-strong);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  color:var(--ink);font-family:var(--font-ui);font-size:14px;text-align:left;
+  cursor:pointer;
+  transition:border-color .15s var(--ease),background .15s var(--ease);
+}
+.dd-btn:hover,.dd-btn[aria-expanded="true"]{border-color:var(--accent);}
+.dd-btn:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-quiet);}
+.dd-value{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.dd-caret{width:14px;height:14px;flex-shrink:0;fill:none;stroke:var(--ink-2);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s var(--ease);}
+.dd-btn[aria-expanded="true"] .dd-caret{transform:rotate(180deg);}
+.dd-menu,.export-menu{animation:ddIn .14s var(--ease);}
+@keyframes ddIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:none;}}
+.dd-menu{
+  position:fixed;z-index:10000001;
+  display:flex;flex-direction:column;gap:2px;
+  max-width:min(320px,calc(100vw - 16px));max-height:min(320px,calc(100vh - 16px));overflow-y:auto;
+  padding:6px;
+  background:var(--bg-2);
+  border:1px solid var(--hairline);
+  border-radius:var(--radius-control);
+  box-shadow:0 24px 48px -24px rgba(0,0,0,.55);
+}
+.dd-menu button{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:8px 10px;
+  background:none;border:none;border-radius:8px;
+  color:var(--ink);font-family:var(--font-ui);font-size:13px;text-align:left;
+  cursor:pointer;
+}
+.dd-menu button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dd-menu button:hover,.dd-menu button:focus-visible{background:var(--accent-quiet);color:var(--accent);outline:none;}
+.dd-menu button[disabled]{opacity:.4;cursor:default;}
+.dd-check{width:14px;height:14px;flex-shrink:0;fill:none;stroke:var(--accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;visibility:hidden;}
+.dd-menu button[aria-selected="true"]{color:var(--accent);font-weight:500;}
+.dd-menu button[aria-selected="true"] .dd-check{visibility:visible;}
+.topbar-sep{width:1px;height:20px;background:var(--hairline);margin:0 2px;}
+.topbar-sep[hidden]{display:none;}
+.icon-btn:focus-visible,.chip-btn:focus-visible,.filter-pill:focus-visible,.type-tile:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-quiet);border-color:var(--accent);}
+.icon-btn[aria-expanded="true"]{background:var(--accent-quiet);color:var(--accent);}
+.btn-primary:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-quiet);}
+.inspector{scrollbar-width:thin;scrollbar-color:var(--hairline) transparent;}
+.dd-menu{scrollbar-width:thin;scrollbar-color:var(--hairline) transparent;}
 
 @media (max-width:900px){
   .workspace-row{flex-direction:column;}
@@ -903,12 +975,22 @@ table.manual-grid td:focus{background:var(--accent-quiet);}
   <button type="button" class="icon-btn" id="redoBtn" title="Redo (Ctrl/Cmd+Shift+Z)" aria-label="Redo" hidden disabled>
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-redo"/></svg>
   </button>
-  <button type="button" class="icon-btn" id="exportDashboardBtn" title="Export dashboard as PNG" aria-label="Export dashboard as PNG" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dashboard"/></svg>
+  <span class="topbar-sep" id="topbarSep" hidden></span>
+  <button type="button" class="icon-btn" id="exportDashboardBtn" data-action="export" title="Export" aria-label="Export" aria-haspopup="true" aria-expanded="false" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
   </button>
-  <button type="button" class="icon-btn" id="saveDashboardBtn" title="Save dashboard (.draw.json)" aria-label="Save dashboard file" hidden>
-    <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>
+  <button type="button" class="icon-btn" id="saveDashboardBtn" title="Copy share link" aria-label="Copy share link" hidden>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"></path><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"></path></svg>
   </button>
+  <div class="export-menu" id="topExportMenu" data-global="1" role="menu" aria-label="Export" hidden>
+    <button type="button" role="menuitem" data-top-export="png"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-image"/></svg>Active chart — PNG</button>
+    <button type="button" role="menuitem" data-top-export="svg"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-code"/></svg>Active chart — SVG</button>
+    <button type="button" role="menuitem" data-top-export="copy"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy active chart</button>
+    <hr>
+    <button type="button" role="menuitem" data-top-export="dashboard"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dashboard"/></svg>Whole dashboard — PNG</button>
+    <button type="button" role="menuitem" data-top-export="json"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-table"/></svg>Save dashboard file (.draw.json)</button>
+    <button type="button" role="menuitem" data-top-export="share"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-copy"/></svg>Copy share link</button>
+  </div>
   <button type="button" class="icon-btn" id="themeToggleBtn" title="Switch to light theme" aria-label="Switch to light theme">
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sun"/></svg>
   </button>
@@ -1765,12 +1847,29 @@ Data.loadParquetLibs = function(cb){
   s1.src = './vendor/hyparquet.umd.js';
   s2.src = './vendor/hyparquet-compressors.umd.js';
   var loaded = 0, failed = false;
+  var finish = function(ok){
+    var cbs = Data._parquetLoading || [];
+    Data._parquetLoading = null;
+    cbs.forEach(function(fn){ fn(ok); });
+  };
+  var cdnFallback = function(){
+    try {
+      var imp = new Function('u', 'return import(u)');
+      Promise.all([
+        imp('https://cdn.jsdelivr.net/npm/hyparquet@1/+esm'),
+        imp('https://cdn.jsdelivr.net/npm/hyparquet-compressors@1/+esm')
+      ]).then(function(mods){
+        window.hyparquetGlobal = mods[0];
+        window.hyparquetCompressorsGlobal = mods[1];
+        finish(!!(mods[0].parquetReadObjects && mods[1].compressors));
+      }, function(){ finish(false); });
+    } catch (err) { finish(false); }
+  };
   var settle = function(){
     loaded++;
     if (loaded < 2) return;
     var ok = !failed && typeof hyparquetGlobal !== 'undefined' && typeof hyparquetCompressorsGlobal !== 'undefined';
-    Data._parquetLoading.forEach(function(fn){ fn(ok); });
-    Data._parquetLoading = null;
+    if (ok) finish(true); else cdnFallback();
   };
   s1.onload = settle;
   s2.onload = settle;
@@ -5605,8 +5704,33 @@ UI.init = function(){
   UI.els.addChartBtn.addEventListener('click', UI.addChart);
   UI.els.undoBtn.addEventListener('click', UI.undo);
   UI.els.redoBtn.addEventListener('click', UI.redo);
-  UI.els.exportDashboardBtn.addEventListener('click', UI.exportDashboardPNG);
-  UI.els.saveDashboardBtn.addEventListener('click', UI.exportDrawJSON);
+  UI.els.topExportMenu = document.getElementById('topExportMenu');
+  UI.els.topbarSep = document.getElementById('topbarSep');
+  UI.els.exportDashboardBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    var wasOpen = UI._openExportMenu === UI.els.topExportMenu;
+    UI.closeAllExportMenus();
+    UI.closeDropdown();
+    if (!wasOpen) UI.openExportMenu(UI.els.exportDashboardBtn, UI.els.topExportMenu);
+  });
+  UI.els.topExportMenu.addEventListener('click', function(e){
+    e.stopPropagation();
+    var item = e.target.closest('[data-top-export]');
+    if (!item) return;
+    var kind = item.getAttribute('data-top-export');
+    var panel = UI.panels[UI.activeIndex] || UI.panels[0];
+    UI.closeAllExportMenus();
+    if (kind === 'dashboard') UI.exportDashboardPNG();
+    else if (kind === 'json') UI.exportDrawJSON();
+    else if (kind === 'share') UI.shareLink();
+    else if (!panel || !panel.chart) UI.toast('No chart to export yet.');
+    else if (kind === 'png') UI.exportChartPNG(panel, {});
+    else if (kind === 'svg') UI.exportSVG(panel);
+    else if (kind === 'copy') UI.copyChartToClipboard(panel);
+  });
+  UI.els.topExportMenu.addEventListener('keydown', function(e){ UI.handleExportMenuKeydown(e, UI.els.topExportMenu); });
+  UI.els.saveDashboardBtn.addEventListener('click', UI.shareLink);
+  window.addEventListener('hashchange', function(){ UI.restoreFromHash(); });
   UI.els.inspector = document.getElementById('inspector');
   UI.els.inspectorClose = document.getElementById('inspectorClose');
   UI.els.inspectorData = document.getElementById('inspectorData');
@@ -5713,9 +5837,12 @@ UI.init = function(){
     else if (key === 'y') { e.preventDefault(); UI.redo(); }
   });
 
-  document.addEventListener('click', function(){ UI.closeAllExportMenus(); });
-  window.addEventListener('scroll', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); }, true);
-  window.addEventListener('resize', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); });
+  document.addEventListener('click', function(){ UI.closeAllExportMenus(); UI.closeDropdown(); });
+  window.addEventListener('scroll', function(e){
+    if (UI._openExportMenu) UI.closeAllExportMenus();
+    if (UI._dd && !(e.target && e.target.nodeType === 1 && UI._dd.menu.contains(e.target))) UI.closeDropdown();
+  }, true);
+  window.addEventListener('resize', function(){ if (UI._openExportMenu) UI.closeAllExportMenus(); UI.closeDropdown(); });
 
   var resizeDebounceId = null;
   window.addEventListener('resize', function(){
@@ -5926,7 +6053,9 @@ UI.closeAllExportMenus = function(opts){
 };
 
 UI.purgeExportMenus = function(){
+  UI.closeDropdown();
   Array.prototype.forEach.call(document.querySelectorAll('.export-menu'), function(m){
+    if (m.getAttribute('data-global')) { m.hidden = true; return; }
     if (m.parentNode) m.parentNode.removeChild(m);
   });
   UI._openExportMenu = null;
@@ -6071,6 +6200,7 @@ UI.setWorkspaceControlsVisible = function(visible){
   UI.els.redoBtn.hidden = !visible;
   UI.els.exportDashboardBtn.hidden = !visible;
   UI.els.saveDashboardBtn.hidden = !visible;
+  if (UI.els.topbarSep) UI.els.topbarSep.hidden = !visible;
 };
 
 function regenerateDashboardIds(rawPanels, rawFilters){
@@ -6598,6 +6728,13 @@ UI.applyRows = function(rows, fields, label, note, generation){
     return;
   }
   if (generation !== UI.loadGeneration) return;
+
+  var pendingLayout = UI._pendingLayout;
+  if (pendingLayout && UI.layoutFitsFields(pendingLayout, fields)) {
+    UI._pendingLayout = null;
+    var applied = UI.restoreDashboardState({ version: pendingLayout.v, rows: rows, fields: fields, sourceName: label, panels: pendingLayout.p, filters: pendingLayout.fl, activeIndex: pendingLayout.a }, label);
+    if (applied) { UI.pushCommand(); UI.toast('Applied shared charts to ' + label); return; }
+  }
 
   UI.registerDatasetRevision(rows, fields, label);
   Store.set({ dataset: store, sourceName: label, rawRows: rows, rawFields: fields });
@@ -7294,6 +7431,207 @@ UI.renderInspector = function(){
       UI.updateSpecField(el.getAttribute('data-role'), value);
     });
   });
+  UI.enhanceSelects(UI.els.inspector);
+};
+
+UI._dd = null;
+UI.closeDropdown = function(restoreFocus){
+  var d = UI._dd;
+  if (!d) return;
+  UI._dd = null;
+  if (d.menu.parentNode) d.menu.parentNode.removeChild(d.menu);
+  d.btn.setAttribute('aria-expanded', 'false');
+  if (restoreFocus && document.body.contains(d.btn)) d.btn.focus();
+};
+
+UI.enhanceSelects = function(root){
+  if (!root) return;
+  Array.prototype.forEach.call(root.querySelectorAll('select'), function(sel){
+    if (sel._ddBtn) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dd-btn';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-expanded', 'false');
+    var labelEl = sel.previousElementSibling;
+    btn.setAttribute('aria-label', sel.getAttribute('aria-label') || (labelEl ? labelEl.textContent : ''));
+    var sync = function(){
+      var o = sel.options[sel.selectedIndex];
+      btn.innerHTML = '<span class="dd-value">' + escapeHtml(o ? o.text : '') + '</span><svg class="dd-caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+    };
+    sync();
+    sel._ddBtn = btn;
+    sel.hidden = true;
+    sel.tabIndex = -1;
+    sel.parentNode.insertBefore(btn, sel.nextSibling);
+    sel.addEventListener('change', sync);
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var isOpen = UI._dd && UI._dd.btn === btn;
+      UI.closeDropdown();
+      if (!isOpen) UI.openDropdown(sel, btn);
+    });
+    btn.addEventListener('keydown', function(e){
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!UI._dd) UI.openDropdown(sel, btn); }
+    });
+  });
+};
+
+UI.openDropdown = function(sel, btn){
+  UI.closeAllExportMenus();
+  var menu = document.createElement('div');
+  menu.className = 'dd-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.innerHTML = Array.prototype.map.call(sel.options, function(o, i){
+    return '<button type="button" role="option" data-i="' + i + '" aria-selected="' + (i === sel.selectedIndex) + '"' + (o.disabled ? ' disabled' : '') + '>' +
+      '<span>' + escapeHtml(o.text) + '</span><svg class="dd-check" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg></button>';
+  }).join('');
+  document.body.appendChild(menu);
+  var r = btn.getBoundingClientRect();
+  menu.style.minWidth = r.width + 'px';
+  var m = menu.getBoundingClientRect();
+  var below = window.innerHeight - r.bottom - 12;
+  var top = (m.height > below && r.top > below) ? Math.max(8, r.top - m.height - 6) : r.bottom + 6;
+  var left = Math.max(8, Math.min(r.left, window.innerWidth - m.width - 8));
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  btn.setAttribute('aria-expanded', 'true');
+  UI._dd = { menu: menu, btn: btn, sel: sel };
+  var items = Array.prototype.slice.call(menu.querySelectorAll('button:not([disabled])'));
+  var current = menu.querySelector('[aria-selected="true"]') || items[0];
+  if (current) { current.focus(); if (current.scrollIntoView) current.scrollIntoView({ block: 'nearest' }); }
+  var pick = function(b){
+    var i = parseInt(b.getAttribute('data-i'), 10);
+    var changed = i !== sel.selectedIndex;
+    UI.closeDropdown(true);
+    if (changed) {
+      sel.selectedIndex = i;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  menu.addEventListener('click', function(e){
+    e.stopPropagation();
+    var b = e.target.closest('button[data-i]');
+    if (b && !b.disabled) pick(b);
+  });
+  menu.addEventListener('keydown', function(e){
+    var idx = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(idx - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); UI.closeDropdown(true); }
+    else if (e.key === 'Tab') { UI.closeDropdown(); }
+    else if (e.key.length === 1) {
+      var ch = e.key.toLowerCase();
+      for (var k = 1; k <= items.length; k++) {
+        var cand = items[(idx + k) % items.length];
+        if (cand.textContent.trim().toLowerCase().charAt(0) === ch) { cand.focus(); break; }
+      }
+    }
+  });
+};
+
+var Share = { MAX: 120000 };
+Share.b64u = function(bytes){
+  var s = '';
+  for (var i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+Share.unb64u = function(str){
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  var bin = atob(str);
+  var out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+};
+Share.pipe = function(bytes, stream){
+  return new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer().then(function(b){ return new Uint8Array(b); });
+};
+Share.encode = function(obj){
+  var bytes = new TextEncoder().encode(JSON.stringify(obj, jsonReplacerSafe));
+  if (typeof CompressionStream === 'undefined') return Promise.resolve('j' + Share.b64u(bytes));
+  return Share.pipe(bytes, new CompressionStream('deflate-raw')).then(function(c){ return 'z' + Share.b64u(c); });
+};
+Share.decode = function(str){
+  var kind = str.charAt(0);
+  var bytes = Share.unb64u(str.slice(1));
+  var p = kind === 'z' ? Share.pipe(bytes, new DecompressionStream('deflate-raw')) : Promise.resolve(bytes);
+  return p.then(function(b){ return JSON.parse(new TextDecoder().decode(b)); });
+};
+
+UI.clearShareHash = function(){
+  if (!/[#&]draw=/.test(location.hash)) return;
+  try { history.replaceState(null, '', location.href.split('#')[0]); } catch (err) {}
+};
+
+UI.shareLink = function(){
+  var st = Store.get();
+  if (!st.rawRows || !st.rawFields) { UI.toast('Nothing to share yet.'); return; }
+  var base = {
+    v: DRAW_SCHEMA,
+    n: st.sourceName,
+    f: st.rawFields,
+    p: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }),
+    fl: Filters.list,
+    a: UI.activeIndex
+  };
+  var full = Object.assign({
+    r: st.rawRows.map(function(row){ return st.rawFields.map(function(f){ var v = row[f]; return v === undefined ? null : v; }); })
+  }, base);
+  Share.encode(full).then(function(enc){
+    if (enc.length <= Share.MAX) return { enc: enc, full: true };
+    return Share.encode(base).then(function(e2){ return { enc: e2, full: false }; });
+  }).then(function(res){
+    var url = location.href.split('#')[0] + '#draw=' + res.enc;
+    try { history.replaceState(null, '', url); } catch (err) {}
+    var msg = res.full
+      ? 'Share link copied \u2014 data and charts travel inside the link'
+      : 'Data is too big for a link \u2014 copied a charts-only link (open it, then drop the same file)';
+    var fail = function(){ UI.toast('Link is in the address bar \u2014 copy it from there'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(function(){ UI.clearShareHash(); UI.toast(msg); }, fail);
+    else fail();
+  }).catch(function(){ UI.toast('Couldn\u2019t create a share link.'); });
+};
+
+UI.layoutFitsFields = function(layout, fields){
+  return !!(layout && Array.isArray(layout.f) && Array.isArray(fields) && layout.f.every(function(f){ return fields.indexOf(f) >= 0; }));
+};
+
+UI.restoreFromHash = function(){
+  var m = /[#&]draw=([^&]+)/.exec(location.hash);
+  if (!m) return Promise.resolve(false);
+  var encoded = m[1];
+  UI.clearShareHash();
+  return Share.decode(encoded).then(function(d){
+    if (!d || !Array.isArray(d.f)) throw new Error('bad');
+    if (Array.isArray(d.r)) {
+      var rows = d.r.map(function(arr){
+        var o = Data.makeRow();
+        d.f.forEach(function(f, i){ o[f] = (arr && arr[i] !== undefined) ? arr[i] : null; });
+        return o;
+      });
+      var ok = UI.restoreDashboardState({ version: d.v, rows: rows, fields: d.f, sourceName: d.n, panels: d.p, filters: d.fl, activeIndex: d.a }, d.n || 'Shared dashboard');
+      if (ok) { UI.pushCommand(); UI.toast('Opened shared dashboard'); }
+      return ok;
+    }
+    var apply = function(){
+      var st = Store.get();
+      if (st.rawRows && UI.layoutFitsFields(d, st.rawFields)) {
+        var ok2 = UI.restoreDashboardState({ version: d.v, rows: st.rawRows, fields: st.rawFields, sourceName: st.sourceName, panels: d.p, filters: d.fl, activeIndex: d.a }, st.sourceName, { skipDatasetSave: true });
+        if (ok2) { UI.pushCommand(); UI.toast('Applied shared charts to your data'); }
+      } else {
+        UI._pendingLayout = d;
+        UI.toast('This link has charts only \u2014 drop ' + (d.n ? d.n : 'the matching file') + ' to see them');
+      }
+      return true;
+    };
+    return Store.get().dataset ? apply() : UI.restoreSession().then(apply);
+  }).catch(function(){
+    UI.toast('That share link looks broken or incomplete.');
+    return false;
+  });
 };
 
 UI.colsBag = function(){
@@ -7629,7 +7967,7 @@ document.addEventListener('DOMContentLoaded', function(){
     return;
   }
   registerKilnTheme();
-  UI.restoreSession().then(drainPendingBoot, drainPendingBoot);
+  UI.restoreFromHash().then(function(handled){ return handled ? null : UI.restoreSession(); }).then(drainPendingBoot, drainPendingBoot);
 });
 </script>
 </body>
