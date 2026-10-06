@@ -3290,6 +3290,7 @@ var Stat = {};
 Stat.collectByGroup = function(columns, valueField, groupField, mask, maxGroups){
   var col = findColumn(columns, valueField);
   var gcol = groupField ? findColumn(columns, groupField) : null;
+  if (!col || (groupField && !gcol)) return [];
   var n = col.values.length;
   var order = [], map = Object.create(null);
   var cap = maxGroups || 30;
@@ -7970,5 +7971,6 @@ document.addEventListener('DOMContentLoaded', function(){
   UI.restoreFromHash().then(function(handled){ return handled ? null : UI.restoreSession(); }).then(drainPendingBoot, drainPendingBoot);
 });
 </script>
+<script src="./js/pro.js"></script>
 </body>
 </html>
