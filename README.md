@@ -24,10 +24,29 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
 - Dashboards now hold up to 12 charts (previously 6)
 - Shortcuts: `D` data, `N` new chart, `E` edit, `P` present, `Ctrl/Cmd+Z` undo
 
+### Workbench layer (`js/workbench.js`)
+- **Dashboard filter bar** above the charts. Add a control for any column:
+  - Pick values (searchable checklist with counts, All/None) for category columns
+  - From–to range for number and date columns
+  - These filters apply to every chart. They are saved with the dashboard and in share links, and can be undone
+  - The chosen controls are remembered in localStorage (`draw-wb-controls`)
+- **Drag to reorder** charts with the grip handle on each card. On the keyboard, focus the grip and press Alt+←/→
+- **Annotations** (inspector → Annotations):
+  - Reference/target line with a label
+  - Average line (line, area, bar, scatter)
+  - A note shown under the chart title, which is also included in the PDF
+- **Combine files** (Data panel tab):
+  - Append another file's rows, with an optional "Source" column
+  - Or join its columns on a key. You choose left or inner join; matching ignores upper/lower case and extra spaces, and you see a preview of how many rows match
+  - Charts are kept, and the change can be undone
+- **Group & pivot** (Data panel tab): group by category or date columns (date grouping by day/week/month/quarter/year). Measures are sum, average, median, min, max, count and distinct count. You can pivot one column into columns and choose whether to respect the dashboard filters. The result becomes a new dataset you can chart
+- **Dashboard PDF** (Export menu, or the palette): an A4 landscape PDF built in the browser with no library. Up to four charts per page, plus a header with source, date, row count and active filters, and the chart notes. Charts are always drawn in the light theme for print
+
 ## Structure
 ```
 index.html        core app (single file, no build step)
 js/pro.js         pro layer: data panel, formulas, views, KPI, palette, present
+js/workbench.js   filter bar, drag reorder, annotations, combine, group/pivot, PDF
 vendor/           echarts, papaparse, xlsx, hyparquet (+compressors)
 fonts/            DM Sans, Instrument Serif (woff2), optional; falls back to system fonts
 ```
@@ -40,9 +59,7 @@ fonts/            DM Sans, Instrument Serif (woff2), optional; falls back to sys
 Everything runs client-side, with no backend. The dataset is stored in IndexedDB (`draw-store`), the dashboard in localStorage (`draw-dashboard`), and saved views in localStorage (`draw-pro-views`).
 
 ## Not yet implemented / next steps
-- Filter controls you can place directly (date range slider, dropdown) as dashboard widgets
-- Drag-and-drop reordering of cards (for now, use the palette commands)
-- Joining or appending a second file; pivot and group-by transforms
-- Reference lines, targets and annotations on charts
-- Dashboard export as PDF; short links for large datasets
+- Short links for large datasets: needs a server-side store, which this static site doesn't have
+- Calculated columns are not re-applied when you load a fresh file. Save the formulas with the view so they are re-applied automatically
+- Combine-files: let the user pick which sheet to use from a multi-sheet XLSX (it currently uses the first sheet)
 - `fonts/` folder was not uploaded. Add the woff2 files there for the intended typography

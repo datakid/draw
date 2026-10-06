@@ -164,7 +164,7 @@ Pro.open = function(tab){
     ov.innerHTML = '<div class="modal pro-modal" role="dialog" aria-modal="true" aria-labelledby="proTitle" style="max-height:88vh">' +
       '<div class="modal-header"><h2 id="proTitle">Data</h2><button type="button" class="icon-btn" data-pro="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"></line><line x1="18" y1="6" x2="6" y2="18"></line></svg></button></div>' +
       '<div class="pro-tabs" role="tablist">' +
-      ['rows:Rows','profile:Profile','calc:Calculated column','views:Saved views'].map(function(t){ var p = t.split(':'); return '<button type="button" class="pro-tab" role="tab" data-tab="' + p[0] + '">' + p[1] + '</button>'; }).join('') +
+      Pro.TABS.map(function(t){ return '<button type="button" class="pro-tab" role="tab" data-tab="' + t[0] + '">' + t[1] + '</button>'; }).join('') +
       '</div><div id="proContent" style="display:flex;flex-direction:column;flex:1;min-height:0"></div></div>';
     document.body.appendChild(ov);
     ov.addEventListener('click', function(e){
@@ -185,8 +185,12 @@ Pro.render = function(tab){
   Pro.tab = tab;
   Array.prototype.forEach.call(Pro.modal.querySelectorAll('.pro-tab'), function(b){ var on = b.getAttribute('data-tab') === tab; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', on); });
   var box = Pro.modal.querySelector('#proContent');
-  ({ rows: Pro.renderRows, profile: Pro.renderProfile, calc: Pro.renderCalc, views: Pro.renderViews })[tab](box);
+  box.innerHTML = '';
+  var fresh = box.cloneNode(false); box.parentNode.replaceChild(fresh, box); box = fresh;
+  Pro.renderers[tab](box);
 };
+Pro.TABS = [['rows','Rows'],['profile','Profile'],['calc','Calculated column'],['views','Saved views']];
+Pro.renderers = {};
 
 Pro.rowState = { q: '', sort: null, dir: 1, limit: 500 };
 Pro.filteredIndices = function(){
@@ -316,6 +320,10 @@ Pro.renderCalc = function(box){
   });
 };
 
+Pro.renderers.rows = function(b){ Pro.renderRows(b); };
+Pro.renderers.profile = function(b){ Pro.renderProfile(b); };
+Pro.renderers.calc = function(b){ Pro.renderCalc(b); };
+Pro.renderers.views = function(b){ Pro.renderViews(b); };
 Pro.VIEWS_KEY = 'draw-pro-views';
 Pro.loadViews = function(){ try { return JSON.parse(localStorage.getItem(Pro.VIEWS_KEY)) || []; } catch (e) { return []; } };
 Pro.saveViews = function(v){ try { localStorage.setItem(Pro.VIEWS_KEY, JSON.stringify(v)); return true; } catch (e) { return false; } };
