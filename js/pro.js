@@ -113,6 +113,72 @@ CHART_TYPES.push({ value: 'kpi', label: 'KPI' });
 
 var Pro = { calc: [] };
 window.DrawPro = Pro;
+Pro.CALC_KEY = 'draw-pro-calc';
+try { var savedCalc = JSON.parse(localStorage.getItem(Pro.CALC_KEY)); if (Array.isArray(savedCalc)) Pro.calc = savedCalc.filter(function(c){ return c && typeof c.name === 'string' && typeof c.expr === 'string'; }); } catch (e) {}
+Pro.persistCalc = function(){ try { localStorage.setItem(Pro.CALC_KEY, JSON.stringify(Pro.calc.slice(-40))); } catch (e) {} };
+Pro.activeCalcs = function(){
+  var st = Store.get(), f = st.rawFields || [], rows = st.rawRows || [];
+  if (Pro._acRows === rows && Pro._acSig === JSON.stringify(Pro.calc)) return Pro._ac;
+  var n = Math.min(rows.length, 40), seen = [];
+  var res = Pro.calc.filter(function(c){
+    if (f.indexOf(c.name) < 0) return false;
+    var base = f.filter(function(x){ return x !== c.name && (seen.indexOf(x) >= 0 || !Pro.calc.some(function(k){ return k.name === x; })); });
+    var fn; try { fn = Pro.compile(c.expr, base); } catch (e) { return false; }
+    for (var i = 0; i < n; i++){
+      var v; try { v = fn(rows[i]); } catch (e) { v = null; }
+      if (v === undefined || (typeof v === 'number' && !isFinite(v))) v = null;
+      var s = rows[i][c.name];
+      if (!(v == null && (s == null || s === '')) && String(v) !== String(s)) return false;
+    }
+    seen.push(c.name); return true;
+  });
+  Pro._acRows = rows; Pro._acSig = JSON.stringify(Pro.calc); Pro._ac = res;
+  return res;
+};
+Pro.idleCalcs = function(){
+  var f = Store.get().rawFields || [];
+  var idle = Pro.calc.filter(function(c){ return f.indexOf(c.name) < 0; });
+  var ok = Pro.calcFieldsFor(f, idle);
+  return idle.filter(function(c){ return ok.indexOf(c.name) >= 0; });
+};
+Pro.specUses = function(spec, name){
+  return Object.keys(spec || {}).some(function(k){ var v = spec[k]; return v === name || (Array.isArray(v) && v.indexOf(name) >= 0); });
+};
+Pro.rebuildCalcs = function(list, dropField){
+  var st = Store.get(), active = Pro.activeCalcs().map(function(c){ return c.name; });
+  var base = st.rawFields.filter(function(f){ return active.indexOf(f) < 0; });
+  var out = Pro.applyCalcs(st.rawRows, base, list);
+  var rows = out.added.length ? out.rows : st.rawRows.map(function(r){ var o = Data.makeRow(); base.forEach(function(f){ o[f] = r[f]; }); return o; });
+  var panels = UI.panels.filter(function(p){ return !dropField || !Pro.specUses(p.spec, dropField); }).map(function(p){ return { id: p.id, spec: p.spec }; });
+  var filters = Filters.list.filter(function(f){ return !dropField || f.field !== dropField; });
+  var keep = Pro.calc.filter(function(c){ return active.indexOf(c.name) < 0 && !out.added.some(function(a){ return a.name === c.name; }); });
+  if (!UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: rows, fields: out.fields, sourceName: st.sourceName, panels: panels, filters: filters, activeIndex: Math.min(UI.activeIndex, Math.max(0, panels.length - 1)) }, st.sourceName)) return false;
+  Pro.calc = keep.concat(out.added); Pro.persistCalc();
+  UI.pushCommand();
+  return out;
+};
+Pro.deleteCalc = function(name){
+  var active = Pro.activeCalcs();
+  var dep = active.filter(function(c){ return c.name !== name && c.expr.indexOf('[' + name + ']') >= 0; });
+  if (dep.length) throw new Error('\u201c' + dep[0].name + '\u201d uses this column. Delete or edit that formula first.');
+  var used = UI.panels.filter(function(p){ return Pro.specUses(p.spec, name); }).length;
+  if (used && !confirm(used + ' chart' + (used > 1 ? 's use' : ' uses') + ' \u201c' + name + '\u201d and will be removed. Continue?')) return false;
+  return Pro.rebuildCalcs(active.filter(function(c){ return c.name !== name; }), name);
+};
+Pro.editCalc = function(name, expr){
+  var st = Store.get(), active = Pro.activeCalcs(), names = active.map(function(c){ return c.name; });
+  var idx = names.indexOf(name); if (idx < 0) throw new Error('That column is no longer in the data');
+  var allowed = st.rawFields.filter(function(f){ return names.indexOf(f) < 0; }).concat(names.slice(0, idx));
+  Pro.compile(expr, allowed);
+  var list = active.map(function(c){ return c.name === name ? { name: name, expr: expr } : c; });
+  var out = Pro.rebuildCalcs(list);
+  if (out && out.added.length < list.length) UI.toast('Some dependent formulas could not be recalculated');
+  return out;
+};
+Pro.calcAllowed = function(name){
+  var st = Store.get(), names = Pro.activeCalcs().map(function(c){ return c.name; }), idx = names.indexOf(name);
+  return st.rawFields.filter(function(f){ return names.indexOf(f) < 0; }).concat(names.slice(0, idx));
+};
 
 Pro.compile = function(expr, fields){
   if (!String(expr || '').trim()) throw new Error('Write a formula first');
@@ -146,6 +212,7 @@ Pro.addCalcColumn = function(name, expr){
   var rows = out.rows, fields = out.fields;
   Pro.calc = Pro.calc.filter(function(c){ return c.name !== name; });
   Pro.calc.push({ name: name, expr: expr });
+  Pro.persistCalc();
   UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: rows, fields: fields, sourceName: st.sourceName,
     panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), filters: Filters.list, activeIndex: UI.activeIndex }, st.sourceName);
   UI.pushCommand();
@@ -312,18 +379,42 @@ Pro.renderProfile = function(box){
 };
 
 Pro.renderCalc = function(box){
-  var f = Store.get().rawFields || [];
-  box.innerHTML = '<div style="padding:4px">' +
+  var editing = Pro._editCalc && Pro.activeCalcs().some(function(c){ return c.name === Pro._editCalc.name; }) ? Pro._editCalc : null;
+  Pro._editCalc = null;
+  var f = editing ? Pro.calcAllowed(editing.name) : (Store.get().rawFields || []);
+  var active = Pro.activeCalcs(), idle = Pro.idleCalcs();
+  var list = active.length ? '<p class="pro-note" style="margin:16px 0 6px">Formula columns in this data:</p><div class="pro-body" style="flex:none">' + active.map(function(c){
+    return '<div class="pro-view"><div style="min-width:0"><strong>' + escapeHtml(c.name) + '</strong><div class="pro-note" style="font-family:ui-monospace,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escapeHtml(c.expr) + '</div></div>' +
+      '<div style="display:flex;gap:6px;flex:none"><button type="button" class="chip-btn" data-edit="' + escapeHtml(c.name) + '">Edit</button><button type="button" class="chip-btn" data-delcalc="' + escapeHtml(c.name) + '">Delete</button></div></div>';
+  }).join('') + '</div>' : '';
+  var reapply = idle.length ? '<div class="pro-row" style="margin-top:14px"><span class="pro-note" style="flex:1">' + idle.length + ' saved formula' + (idle.length > 1 ? 's fit' : ' fits') + ' this data: ' + idle.map(function(c){ return escapeHtml(c.name); }).join(', ') + '</span><button type="button" class="chip-btn" id="proCalcReapply">Add ' + (idle.length > 1 ? 'them' : 'it') + '</button></div>' : '';
+  box.innerHTML = '<div style="padding:4px;overflow:auto">' +
     '<p class="pro-note" style="margin-bottom:10px">Write a formula with column names in square brackets. Number cells are cleaned automatically ($, commas and %).</p>' +
-    '<div class="pro-row"><input class="pro-input" id="proCalcName" placeholder="New column name, e.g. Price per unit" aria-label="New column name"></div>' +
-    '<div class="pro-row"><input class="pro-input" id="proCalcExpr" placeholder="[Revenue] / [Units]" aria-label="Formula" style="font-family:ui-monospace,monospace"></div>' +
+    '<div class="pro-row"><input class="pro-input" id="proCalcName" placeholder="New column name, e.g. Price per unit" aria-label="New column name"' + (editing ? ' value="' + escapeHtml(editing.name) + '" disabled' : '') + '></div>' +
+    '<div class="pro-row"><input class="pro-input" id="proCalcExpr" placeholder="[Revenue] / [Units]" aria-label="Formula" style="font-family:ui-monospace,monospace"' + (editing ? ' value="' + escapeHtml(editing.expr) + '"' : '') + '></div>' +
     '<p class="pro-note">Functions: IF(cond,a,b) \u00b7 ROUND(v,d) \u00b7 ABS \u00b7 LOG \u00b7 UPPER \u00b7 LOWER \u00b7 YEAR \u00b7 MONTH \u00b7 CONCAT(a,b,\u2026) \u00b7 BUCKET(v,size). Operators: + - * / % &gt; &lt; == &amp;&amp; || ? :</p>' +
     '<p class="pro-note" style="margin:10px 0 4px">Columns (click to insert):</p><div class="field-check-list" id="proCalcCols">' +
     f.map(function(n){ return '<button type="button" class="field-check" data-ins="' + escapeHtml(n) + '">' + escapeHtml(n) + '</button>'; }).join('') + '</div>' +
     '<p class="pro-note" id="proCalcPreview" style="margin-top:12px"></p>' +
-    '<div class="modal-actions"><span></span><button type="button" class="btn-primary" id="proCalcGo">Add column</button></div>' +
-    (Pro.calc.length ? '<p class="pro-note" style="margin-top:12px">Added this session: ' + Pro.calc.map(function(c){ return escapeHtml(c.name) + ' = ' + escapeHtml(c.expr); }).join(' \u00b7 ') + '</p>' : '') + '</div>';
-  var ex = box.querySelector('#proCalcExpr'), pv = box.querySelector('#proCalcPreview');
+    '<div class="modal-actions">' + (editing ? '<button type="button" class="chip-btn" id="proCalcCancel">Cancel</button>' : '<span></span>') + '<button type="button" class="btn-primary" id="proCalcGo">' + (editing ? 'Save formula' : 'Add column') + '</button></div>' +
+    reapply + list + '</div>';
+  var ex = box.querySelector('#proCalcExpr'), pv = box.querySelector('#proCalcPreview'), nmIn = box.querySelector('#proCalcName');
+  function goBtn(){ return box.querySelector('#proCalcGo'); }
+  [nmIn, ex].forEach(function(el){ el.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); goBtn().click(); } }); });
+  box.addEventListener('click', function(e){
+    var ed = e.target.closest('[data-edit]'), dl = e.target.closest('[data-delcalc]');
+    if (ed){ var n = ed.getAttribute('data-edit'); Pro._editCalc = Pro.activeCalcs().filter(function(c){ return c.name === n; })[0]; Pro.render('calc'); }
+    if (dl){ var dn = dl.getAttribute('data-delcalc'); try { if (Pro.deleteCalc(dn)) { UI.toast('Deleted column \u201c' + dn + '\u201d'); Pro.render('calc'); } } catch (err) { pv.className = 'pro-err'; pv.textContent = err.message; } }
+    if (e.target.id === 'proCalcCancel') Pro.render('calc');
+    if (e.target.id === 'proCalcReapply'){
+      var st = Store.get(), out = Pro.applyCalcs(st.rawRows, st.rawFields, idle);
+      if (!out.added.length) return;
+      if (UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: out.rows, fields: out.fields, sourceName: st.sourceName, panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), filters: Filters.list, activeIndex: UI.activeIndex }, st.sourceName)) {
+        UI.pushCommand(); UI.toast(out.added.length + ' formula column' + (out.added.length > 1 ? 's' : '') + ' added'); Pro.render('calc');
+      }
+    }
+  });
+  if (editing) setTimeout(function(){ ex.focus(); ex.setSelectionRange(ex.value.length, ex.value.length); }, 30);
   function preview(){
     if (!ex.value.trim()) { pv.textContent = ''; return; }
     try {
@@ -337,8 +428,12 @@ Pro.renderCalc = function(box){
     var s = ex.selectionStart || ex.value.length, ins = '[' + b.getAttribute('data-ins') + ']';
     ex.value = ex.value.slice(0, s) + ins + ex.value.slice(ex.selectionEnd || s); ex.focus(); preview();
   });
-  box.querySelector('#proCalcGo').addEventListener('click', function(){
-    try { var nm = box.querySelector('#proCalcName').value; Pro.addCalcColumn(nm, ex.value); UI.toast('Added column \u201c' + nm.trim() + '\u201d'); Pro.render('profile'); }
+  if (editing) preview();
+  goBtn().addEventListener('click', function(){
+    try {
+      if (editing) { if (Pro.editCalc(editing.name, ex.value)) { UI.toast('Updated \u201c' + editing.name + '\u201d'); Pro.render('calc'); } return; }
+      var nm = nmIn.value; Pro.addCalcColumn(nm, ex.value); UI.toast('Added column \u201c' + nm.trim() + '\u201d'); Pro.render('calc');
+    }
     catch (e) { pv.className = 'pro-err'; pv.textContent = e.message; }
   });
 };
@@ -377,6 +472,7 @@ Pro.renderViews = function(box){
       var view = views[+a.getAttribute('data-apply')], v = view.layout, st = Store.get();
       var out = Pro.applyCalcs(st.rawRows, st.rawFields, view.calc);
       out.added.forEach(function(c){ Pro.calc = Pro.calc.filter(function(x){ return x.name !== c.name; }); Pro.calc.push(c); });
+      if (out.added.length) Pro.persistCalc();
       if (UI.restoreDashboardState({ version: v.v, rows: out.rows, fields: out.fields, sourceName: st.sourceName, panels: v.p, filters: v.fl, activeIndex: v.a }, st.sourceName, out.added.length ? undefined : { skipDatasetSave: true })) { UI.pushCommand(); Pro.close(); UI.toast(out.added.length ? 'View applied \u00b7 ' + out.added.length + ' formula column' + (out.added.length > 1 ? 's' : '') + ' recreated' : 'View applied'); }
     }
     if (d){ views.splice(+d.getAttribute('data-del'), 1); Pro.saveViews(views); Pro.render('views'); }

@@ -16,6 +16,8 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
   - **Rows**: a searchable, sortable table of the rows that pass the current dashboard filters. Loads 500 rows at a time, and you can download exactly those rows as CSV
   - **Profile**: for each column, its type, distinct count, how complete it is, and a summary (min/median/mean/max, date range, or top values). "Chart it" adds a chart for that column
   - **Calculated column**: formulas such as `ROUND([Revenue] / [Units], 2)` or `IF([Revenue] > 20000, "Big", "Small")`, with a live preview. Available functions: `IF ROUND ABS LOG UPPER LOWER YEAR MONTH CONCAT BUCKET`. Formulas are sandboxed: no statements, assignments or globals. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
+  - **Manage formulas**: every formula column in the current data is listed with **Edit** and **Delete**. Editing recalculates the column and any formula columns built on it. Deleting is blocked while another formula depends on the column, and asks before removing charts that use it
+  - **Formula memory**: formulas are remembered in localStorage (`draw-pro-calc`). When you load a fresh file that has the columns a remembered formula needs, the tab offers **Add them** to recreate those formulas in one click
   - **Saved views**: save the charts, layout, filters and calculated-column formulas under a name in localStorage, then apply them to any file that has the same source columns. Formula columns are recreated automatically when the view is applied, so a fresh file doesn't need them re-entered
 - **KPI card** chart: a big number (sum/avg/count) with an optional date trend sparkline and a change against the previous period
 - **Command palette** (`Ctrl/Cmd+K` or `?`): every action, plus the suggested charts for the current data
@@ -57,12 +59,12 @@ fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, lat
 - `/index.html#draw=<z|j><base64url>` opens a shared dashboard
 
 ## Data
-Everything runs client-side, with no backend. The dataset is stored in IndexedDB (`draw-store`), the dashboard in localStorage (`draw-dashboard`), and saved views in localStorage (`draw-pro-views`).
+Everything runs client-side, with no backend. The dataset is stored in IndexedDB (`draw-store`), the dashboard in localStorage (`draw-dashboard`), saved views in localStorage (`draw-pro-views`), and remembered formulas in localStorage (`draw-pro-calc`, up to 40 entries of `{ name, expr }`).
 
 Saved view shape: `{ name, at, source, calc: [{ name, expr }], layout: { v, f, p, fl, a } }`. `calc` is optional (views saved earlier still load).
 
 ## Not yet implemented / next steps
 - Short links for large datasets: needs a server-side store, which this static site doesn't have
-- Calculated columns persist with saved views but not with the plain dashboard autosave. Loading a fresh file without applying a view still drops them
-- Formulas can reference earlier formula columns inside one view, but there is no UI yet to edit or delete an existing formula column
+- Remembered formulas are offered on a fresh file but not added automatically; this is deliberate, so the raw data isn't changed silently
+- Renaming a formula column isn't supported. Delete it and add it again under the new name
 - Fonts are latin-only subsets. Add latin-ext files if you need extended characters
