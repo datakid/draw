@@ -16,7 +16,7 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
   - **Rows**: a searchable, sortable table of the rows that pass the current dashboard filters. Loads 500 rows at a time, and you can download exactly those rows as CSV
   - **Profile**: for each column, its type, distinct count, how complete it is, and a summary (min/median/mean/max, date range, or top values). "Chart it" adds a chart for that column
   - **Calculated column**: formulas such as `ROUND([Revenue] / [Units], 2)` or `IF([Revenue] > 20000, "Big", "Small")`, with a live preview. Available functions: `IF ROUND ABS LOG UPPER LOWER YEAR MONTH CONCAT BUCKET`. Formulas are sandboxed: no statements, assignments or globals. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
-  - **Saved views**: save the charts, layout and filters under a name in localStorage, then apply them to any file that has the same columns
+  - **Saved views**: save the charts, layout, filters and calculated-column formulas under a name in localStorage, then apply them to any file that has the same source columns. Formula columns are recreated automatically when the view is applied, so a fresh file doesn't need them re-entered
 - **KPI card** chart: a big number (sum/avg/count) with an optional date trend sparkline and a change against the previous period
 - **Command palette** (`Ctrl/Cmd+K` or `?`): every action, plus the suggested charts for the current data
 - **Duplicate chart** button on each card, and commands to move the active chart earlier or later
@@ -36,6 +36,7 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
   - Average line (line, area, bar, scatter)
   - A note shown under the chart title, which is also included in the PDF
 - **Combine files** (Data panel tab):
+  - For multi-sheet XLSX files, a Sheet dropdown chooses which sheet to combine (first sheet by default)
   - Append another file's rows, with an optional "Source" column
   - Or join its columns on a key. You choose left or inner join; matching ignores upper/lower case and extra spaces, and you see a preview of how many rows match
   - Charts are kept, and the change can be undone
@@ -48,7 +49,7 @@ index.html        core app (single file, no build step)
 js/pro.js         pro layer: data panel, formulas, views, KPI, palette, present
 js/workbench.js   filter bar, drag reorder, annotations, combine, group/pivot, PDF
 vendor/           echarts, papaparse, xlsx, hyparquet (+compressors)
-fonts/            DM Sans, Instrument Serif (woff2), optional; falls back to system fonts
+fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, latin subset from Fontsource); falls back to system fonts
 ```
 
 ## Entry
@@ -58,8 +59,10 @@ fonts/            DM Sans, Instrument Serif (woff2), optional; falls back to sys
 ## Data
 Everything runs client-side, with no backend. The dataset is stored in IndexedDB (`draw-store`), the dashboard in localStorage (`draw-dashboard`), and saved views in localStorage (`draw-pro-views`).
 
+Saved view shape: `{ name, at, source, calc: [{ name, expr }], layout: { v, f, p, fl, a } }`. `calc` is optional (views saved earlier still load).
+
 ## Not yet implemented / next steps
 - Short links for large datasets: needs a server-side store, which this static site doesn't have
-- Calculated columns are not re-applied when you load a fresh file. Save the formulas with the view so they are re-applied automatically
-- Combine-files: let the user pick which sheet to use from a multi-sheet XLSX (it currently uses the first sheet)
-- `fonts/` folder was not uploaded. Add the woff2 files there for the intended typography
+- Calculated columns persist with saved views but not with the plain dashboard autosave. Loading a fresh file without applying a view still drops them
+- Formulas can reference earlier formula columns inside one view, but there is no UI yet to edit or delete an existing formula column
+- Fonts are latin-only subsets. Add latin-ext files if you need extended characters

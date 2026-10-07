@@ -439,14 +439,31 @@ Pro.renderers.combine = function(box){
     info.textContent = 'Reading ' + file.name + '\u2026';
     Data.fromFile(file, function(res){
       if (!res.ok) { info.textContent = res.message; return; }
-      var sheetNote = '';
-      if (res.needsSheetPick) { var ex = Data.extractSheet(res.workbook, res.sheetNames[0]); sheetNote = ' (first sheet: ' + res.sheetNames[0] + ')'; res = { ok: true, rows: ex.rows, fields: ex.fields }; }
-      if (!res.rows || !res.rows.length) { info.textContent = 'That file has no rows.'; return; }
-      W.second = { rows: res.rows, fields: res.fields, name: file.name };
-      info.textContent = file.name + sheetNote + ' \u00b7 ' + res.rows.length.toLocaleString() + ' rows \u00b7 ' + res.fields.length + ' columns';
-      renderCombineOpts(box.querySelector('#wbCombineOpts'));
+      if (res.needsSheetPick) { W.secondBook = { workbook: res.workbook, sheetNames: res.sheetNames, name: file.name }; useSheet(res.sheetNames[0]); return; }
+      W.secondBook = null;
+      setSecond(res.rows, res.fields, file.name, '');
     });
   });
+  function setSecond(rows, fields, name, sheet){
+    var sp = box.querySelector('#wbSheetRow'); if (sp) sp.remove();
+    if (W.secondBook) {
+      var row = document.createElement('div'); row.className = 'pro-row'; row.id = 'wbSheetRow';
+      row.innerHTML = '<label class="pro-note" for="wbSheet">Sheet</label><select id="wbSheet" aria-label="Sheet to combine">' + W.secondBook.sheetNames.map(function(s){ return '<option value="' + q(s) + '"' + (s === sheet ? ' selected' : '') + '>' + q(s) + '</option>'; }).join('') + '</select>';
+      box.querySelector('#wbCombineOpts').before(row);
+      row.querySelector('#wbSheet').addEventListener('change', function(e){ useSheet(e.target.value); });
+    }
+    var opts = box.querySelector('#wbCombineOpts');
+    if (!rows || !rows.length) { W.second = null; opts.innerHTML = ''; info.textContent = name + (sheet ? ' \u00b7 ' + sheet : '') + ' has no rows.'; return; }
+    W.second = { rows: rows, fields: fields, name: name, sheet: sheet };
+    info.textContent = name + (sheet ? ' \u00b7 sheet \u201c' + sheet + '\u201d' : '') + ' \u00b7 ' + rows.length.toLocaleString() + ' rows \u00b7 ' + fields.length + ' columns';
+    renderCombineOpts(opts);
+  }
+  function useSheet(sheet){
+    var b = W.secondBook; if (!b) return;
+    var ex = Data.extractSheet(b.workbook, sheet);
+    setSecond(ex.rows, ex.fields, b.name, sheet);
+  }
+  if (W.secondBook && W.second) { setSecond(W.second.rows, W.second.fields, W.second.name, W.second.sheet); return; }
   if (W.second) { info.textContent = W.second.name + ' \u00b7 ' + W.second.rows.length.toLocaleString() + ' rows'; renderCombineOpts(box.querySelector('#wbCombineOpts')); }
 };
 function keyOf(v){ return Data.stringifyCell(v).trim().toLowerCase(); }

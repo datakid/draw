@@ -141,18 +141,41 @@ Pro.addCalcColumn = function(name, expr){
   name = String(name || '').trim();
   if (!name) throw new Error('Give the column a name');
   if (st.rawFields.indexOf(name) >= 0) throw new Error('A column with that name exists');
-  var fn = Pro.compile(expr, st.rawFields);
-  var rows = st.rawRows.map(function(r){
-    var o = Data.makeRow(); st.rawFields.forEach(function(f){ o[f] = r[f]; });
-    var v; try { v = fn(r); } catch (e) { v = null; }
-    o[name] = (v === undefined || (typeof v === 'number' && !isFinite(v))) ? null : v;
-    return o;
-  });
-  var fields = st.rawFields.concat([name]);
+  Pro.compile(expr, st.rawFields);
+  var out = Pro.applyCalcs(st.rawRows, st.rawFields, [{ name: name, expr: expr }]);
+  var rows = out.rows, fields = out.fields;
+  Pro.calc = Pro.calc.filter(function(c){ return c.name !== name; });
   Pro.calc.push({ name: name, expr: expr });
   UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: rows, fields: fields, sourceName: st.sourceName,
     panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), filters: Filters.list, activeIndex: UI.activeIndex }, st.sourceName);
   UI.pushCommand();
+};
+
+Pro.applyCalcs = function(srcRows, srcFields, calcs){
+  var fields = srcFields.slice(), fns = [], added = [];
+  (calcs || []).forEach(function(c){
+    if (!c || !c.name || fields.indexOf(c.name) >= 0) return;
+    var fn; try { fn = Pro.compile(c.expr, fields); } catch (e) { return; }
+    fns.push({ name: c.name, fn: fn }); fields.push(c.name); added.push({ name: c.name, expr: c.expr });
+  });
+  if (!fns.length) return { rows: srcRows, fields: srcFields, added: added };
+  var rows = srcRows.map(function(r){
+    var o = Data.makeRow(); srcFields.forEach(function(f){ o[f] = r[f]; });
+    fns.forEach(function(x){
+      var v; try { v = x.fn(o); } catch (e) { v = null; }
+      o[x.name] = (v === undefined || (typeof v === 'number' && !isFinite(v))) ? null : v;
+    });
+    return o;
+  });
+  return { rows: rows, fields: fields, added: added };
+};
+Pro.calcFieldsFor = function(fields, calcs){
+  var f = fields.slice();
+  (calcs || []).forEach(function(c){
+    if (!c || f.indexOf(c.name) >= 0) return;
+    try { Pro.compile(c.expr, f); f.push(c.name); } catch (e) {}
+  });
+  return f;
 };
 
 Pro.modal = null;
@@ -332,8 +355,9 @@ Pro.renderViews = function(box){
   box.innerHTML = '<div class="pro-row"><input class="pro-input" id="proViewName" placeholder="Name this view, e.g. Q4 regional review" aria-label="View name"><button type="button" class="btn-primary" id="proViewSave">Save current view</button></div>' +
     '<p class="pro-note" style="margin-bottom:8px">A view stores the charts, layout and filters (not the data). You can apply it to any file that has the same columns.</p>' +
     '<div class="pro-body">' + (views.length ? views.map(function(v, i){
-      var fits = UI.layoutFitsFields(v.layout, fields);
-      return '<div class="pro-view"><div><strong>' + escapeHtml(v.name) + '</strong><div class="pro-note">' + v.layout.p.length + ' charts \u00b7 ' + escapeHtml(v.source || '') + ' \u00b7 ' + new Date(v.at).toLocaleString() + '</div></div>' +
+      var fits = UI.layoutFitsFields(v.layout, Pro.calcFieldsFor(fields, v.calc));
+      var nCalc = (v.calc || []).length;
+      return '<div class="pro-view"><div><strong>' + escapeHtml(v.name) + '</strong><div class="pro-note">' + v.layout.p.length + ' charts' + (nCalc ? ' \u00b7 ' + nCalc + ' formula' + (nCalc > 1 ? 's' : '') : '') + ' \u00b7 ' + escapeHtml(v.source || '') + ' \u00b7 ' + new Date(v.at).toLocaleString() + '</div></div>' +
         '<div style="display:flex;gap:6px"><button type="button" class="chip-btn" data-apply="' + i + '"' + (fits ? '' : ' disabled title="This data is missing columns the view needs"') + '>Apply</button><button type="button" class="chip-btn" data-del="' + i + '">Delete</button></div></div>';
     }).join('') : '<p class="pro-note" style="padding:16px">No saved views yet.</p>') + '</div>';
   box.querySelector('#proViewSave').addEventListener('click', function(){
@@ -342,15 +366,18 @@ Pro.renderViews = function(box){
     var used = {};
     UI.panels.forEach(function(p){ Object.keys(p.spec || {}).forEach(function(k){ var v = p.spec[k]; if (typeof v === 'string' && st.rawFields.indexOf(v) >= 0) used[v] = 1; (Array.isArray(v) ? v : []).forEach(function(x){ if (st.rawFields.indexOf(x) >= 0) used[x] = 1; }); }); });
     Filters.list.forEach(function(f){ used[f.field] = 1; });
-    views.unshift({ name: name, at: Date.now(), source: st.sourceName, layout: { v: DRAW_SCHEMA, f: Object.keys(used), p: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), fl: JSON.parse(JSON.stringify(Filters.list)), a: UI.activeIndex } });
+    var calc = Pro.calc.filter(function(c){ return st.rawFields.indexOf(c.name) >= 0; }).map(function(c){ return { name: c.name, expr: c.expr }; });
+    views.unshift({ name: name, at: Date.now(), source: st.sourceName, calc: calc, layout: { v: DRAW_SCHEMA, f: Object.keys(used), p: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), fl: JSON.parse(JSON.stringify(Filters.list)), a: UI.activeIndex } });
     if (Pro.saveViews(views.slice(0, 40))) UI.toast('Saved view \u201c' + name + '\u201d'); else UI.toast('Couldn\u2019t save \u2014 browser storage is full.');
     Pro.render('views');
   });
   box.querySelector('.pro-body').addEventListener('click', function(e){
     var a = e.target.closest('[data-apply]'), d = e.target.closest('[data-del]');
     if (a){
-      var v = views[+a.getAttribute('data-apply')].layout, st = Store.get();
-      if (UI.restoreDashboardState({ version: v.v, rows: st.rawRows, fields: st.rawFields, sourceName: st.sourceName, panels: v.p, filters: v.fl, activeIndex: v.a }, st.sourceName, { skipDatasetSave: true })) { UI.pushCommand(); Pro.close(); UI.toast('View applied'); }
+      var view = views[+a.getAttribute('data-apply')], v = view.layout, st = Store.get();
+      var out = Pro.applyCalcs(st.rawRows, st.rawFields, view.calc);
+      out.added.forEach(function(c){ Pro.calc = Pro.calc.filter(function(x){ return x.name !== c.name; }); Pro.calc.push(c); });
+      if (UI.restoreDashboardState({ version: v.v, rows: out.rows, fields: out.fields, sourceName: st.sourceName, panels: v.p, filters: v.fl, activeIndex: v.a }, st.sourceName, out.added.length ? undefined : { skipDatasetSave: true })) { UI.pushCommand(); Pro.close(); UI.toast(out.added.length ? 'View applied \u00b7 ' + out.added.length + ' formula column' + (out.added.length > 1 ? 's' : '') + ' recreated' : 'View applied'); }
     }
     if (d){ views.splice(+d.getAttribute('data-del'), 1); Pro.saveViews(views); Pro.render('views'); }
   });
