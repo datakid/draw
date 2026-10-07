@@ -144,13 +144,21 @@ Pro.idleCalcs = function(){
 Pro.specUses = function(spec, name){
   return Object.keys(spec || {}).some(function(k){ var v = spec[k]; return v === name || (Array.isArray(v) && v.indexOf(name) >= 0); });
 };
-Pro.rebuildCalcs = function(list, dropField){
+Pro.rebuildCalcs = function(list, dropField, rename){
   var st = Store.get(), active = Pro.activeCalcs().map(function(c){ return c.name; });
   var base = st.rawFields.filter(function(f){ return active.indexOf(f) < 0; });
   var out = Pro.applyCalcs(st.rawRows, base, list);
   var rows = out.added.length ? out.rows : st.rawRows.map(function(r){ var o = Data.makeRow(); base.forEach(function(f){ o[f] = r[f]; }); return o; });
-  var panels = UI.panels.filter(function(p){ return !dropField || !Pro.specUses(p.spec, dropField); }).map(function(p){ return { id: p.id, spec: p.spec }; });
-  var filters = Filters.list.filter(function(f){ return !dropField || f.field !== dropField; });
+  var panels = UI.panels.filter(function(p){ return !dropField || !Pro.specUses(p.spec, dropField); }).map(function(p){
+    var spec = p.spec;
+    if (rename && spec) {
+      var used = Pro.specUses(spec, rename.from);
+      spec = Pro.renameIn(spec, rename.from, rename.to);
+      if (used && typeof spec.title === 'string') spec.title = spec.title.split(rename.from).join(rename.to).split(titleCase(rename.from)).join(titleCase(rename.to));
+    }
+    return { id: p.id, spec: spec };
+  });
+  var filters = Filters.list.filter(function(f){ return !dropField || f.field !== dropField; }).map(function(f){ return rename && f.field === rename.from ? Object.assign({}, f, { field: rename.to }) : f; });
   var keep = Pro.calc.filter(function(c){ return active.indexOf(c.name) < 0 && !out.added.some(function(a){ return a.name === c.name; }); });
   if (!UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: rows, fields: out.fields, sourceName: st.sourceName, panels: panels, filters: filters, activeIndex: Math.min(UI.activeIndex, Math.max(0, panels.length - 1)) }, st.sourceName)) return false;
   Pro.calc = keep.concat(out.added); Pro.persistCalc();
@@ -165,13 +173,24 @@ Pro.deleteCalc = function(name){
   if (used && !confirm(used + ' chart' + (used > 1 ? 's use' : ' uses') + ' \u201c' + name + '\u201d and will be removed. Continue?')) return false;
   return Pro.rebuildCalcs(active.filter(function(c){ return c.name !== name; }), name);
 };
-Pro.editCalc = function(name, expr){
+Pro.renameIn = function(v, from, to){
+  if (v === from) return to;
+  if (Array.isArray(v)) return v.map(function(x){ return Pro.renameIn(x, from, to); });
+  if (v && typeof v === 'object') { var o = {}; Object.keys(v).forEach(function(k){ o[k] = Pro.renameIn(v[k], from, to); }); return o; }
+  return v;
+};
+Pro.editCalc = function(name, expr, newName){
   var st = Store.get(), active = Pro.activeCalcs(), names = active.map(function(c){ return c.name; });
   var idx = names.indexOf(name); if (idx < 0) throw new Error('That column is no longer in the data');
+  newName = String(newName == null ? name : newName).trim();
+  if (!newName) throw new Error('Give the column a name');
+  if (/[\[\]]/.test(newName)) throw new Error('Column names can\u2019t contain [ or ]');
+  if (newName !== name && st.rawFields.indexOf(newName) >= 0) throw new Error('A column with that name exists');
   var allowed = st.rawFields.filter(function(f){ return names.indexOf(f) < 0; }).concat(names.slice(0, idx));
   Pro.compile(expr, allowed);
-  var list = active.map(function(c){ return c.name === name ? { name: name, expr: expr } : c; });
-  var out = Pro.rebuildCalcs(list);
+  var ref = '[' + name + ']', nref = '[' + newName + ']';
+  var list = active.map(function(c){ return c.name === name ? { name: newName, expr: expr } : (newName !== name ? { name: c.name, expr: c.expr.split(ref).join(nref) } : c); });
+  var out = Pro.rebuildCalcs(list, null, newName !== name ? { from: name, to: newName } : null);
   if (out && out.added.length < list.length) UI.toast('Some dependent formulas could not be recalculated');
   return out;
 };
@@ -196,7 +215,17 @@ Pro.compile = function(expr, fields){
     'var ABS=function(v){return Math.abs(num(v));};var LOG=function(v){return Math.log(num(v));};var UPPER=function(v){return String(v==null?"":v).toUpperCase();};' +
     'var LOWER=function(v){return String(v==null?"":v).toLowerCase();};var YEAR=function(v){var d=new Date(v);return isNaN(d)?null:d.getUTCFullYear();};' +
     'var MONTH=function(v){var d=new Date(v);return isNaN(d)?null:d.getUTCMonth()+1;};var CONCAT=function(){return Array.prototype.join.call(arguments,"");};' +
-    'var BUCKET=function(v,s){var n=num(v);if(n==null)return null;var b=Math.floor(n/s)*s;return b+"\u2013"+(b+s);};';
+    'var BUCKET=function(v,s){var n=num(v);if(n==null)return null;var b=Math.floor(n/s)*s;return b+"\u2013"+(b+s);};' +
+    'var nums=function(a){return Array.prototype.map.call(a,num).filter(function(x){return x!=null;});};var str=function(v){return v==null?"":String(v);};' +
+    'var dt=function(v){if(v==null||v==="")return null;var d=new Date(typeof v==="number"&&v<1e11?v*1000:v);return isNaN(d)?null:d;};' +
+    'var MIN=function(){var a=nums(arguments);return a.length?Math.min.apply(null,a):null;};var MAX=function(){var a=nums(arguments);return a.length?Math.max.apply(null,a):null;};' +
+    'var FLOOR=function(v){var n=num(v);return n==null?null:Math.floor(n);};var CEIL=function(v){var n=num(v);return n==null?null:Math.ceil(n);};' +
+    'var SQRT=function(v){var n=num(v);return n==null||n<0?null:Math.sqrt(n);};var POWER=function(v,p){var n=num(v);return n==null?null:Math.pow(n,num(p));};' +
+    'var DIVIDE=function(a,b){var x=num(a),y=num(b);return x==null||!y?null:x/y;};var COALESCE=function(){for(var i=0;i<arguments.length;i++){var v=arguments[i];if(v!=null&&v!==""&&!(typeof v==="number"&&isNaN(v)))return v;}return null;};' +
+    'var LEN=function(v){return str(v).length;};var TRIM=function(v){return str(v).trim();};var LEFT=function(v,n){return str(v).slice(0,Math.max(0,num(n)||0));};var RIGHT=function(v,n){var k=Math.max(0,num(n)||0);return k?str(v).slice(-k):"";};' +
+    'var CONTAINS=function(v,s){return str(v).toLowerCase().indexOf(str(s).toLowerCase())>=0;};var REPLACE=function(v,a,b){return str(v).split(str(a)).join(str(b));};' +
+    'var DAY=function(v){var d=dt(v);return d?d.getUTCDate():null;};var WEEKDAY=function(v){var d=dt(v);return d?["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getUTCDay()]:null;};' +
+    'var QUARTER=function(v){var d=dt(v);return d?"Q"+(Math.floor(d.getUTCMonth()/3)+1):null;};var DAYS=function(a,b){var x=dt(a),y=dt(b);return x&&y?Math.round((x-y)/864e5):null;};';
   var fn = new Function('r', '$refs', helpers + 'return (' + bare + ');');
   return function(r){ return fn(r, refs); };
 };
@@ -206,6 +235,7 @@ Pro.addCalcColumn = function(name, expr){
   if (!st.rawRows) throw new Error('Load data first');
   name = String(name || '').trim();
   if (!name) throw new Error('Give the column a name');
+  if (/[\[\]]/.test(name)) throw new Error('Column names can\u2019t contain [ or ]');
   if (st.rawFields.indexOf(name) >= 0) throw new Error('A column with that name exists');
   Pro.compile(expr, st.rawFields);
   var out = Pro.applyCalcs(st.rawRows, st.rawFields, [{ name: name, expr: expr }]);
@@ -390,9 +420,12 @@ Pro.renderCalc = function(box){
   var reapply = idle.length ? '<div class="pro-row" style="margin-top:14px"><span class="pro-note" style="flex:1">' + idle.length + ' saved formula' + (idle.length > 1 ? 's fit' : ' fits') + ' this data: ' + idle.map(function(c){ return escapeHtml(c.name); }).join(', ') + '</span><button type="button" class="chip-btn" id="proCalcReapply">Add ' + (idle.length > 1 ? 'them' : 'it') + '</button></div>' : '';
   box.innerHTML = '<div style="padding:4px;overflow:auto">' +
     '<p class="pro-note" style="margin-bottom:10px">Write a formula with column names in square brackets. Number cells are cleaned automatically ($, commas and %).</p>' +
-    '<div class="pro-row"><input class="pro-input" id="proCalcName" placeholder="New column name, e.g. Price per unit" aria-label="New column name"' + (editing ? ' value="' + escapeHtml(editing.name) + '" disabled' : '') + '></div>' +
+    '<div class="pro-row"><input class="pro-input" id="proCalcName" placeholder="New column name, e.g. Price per unit" aria-label="New column name"' + (editing ? ' value="' + escapeHtml(editing.name) + '"' : '') + '></div>' +
     '<div class="pro-row"><input class="pro-input" id="proCalcExpr" placeholder="[Revenue] / [Units]" aria-label="Formula" style="font-family:ui-monospace,monospace"' + (editing ? ' value="' + escapeHtml(editing.expr) + '"' : '') + '></div>' +
-    '<p class="pro-note">Functions: IF(cond,a,b) \u00b7 ROUND(v,d) \u00b7 ABS \u00b7 LOG \u00b7 UPPER \u00b7 LOWER \u00b7 YEAR \u00b7 MONTH \u00b7 CONCAT(a,b,\u2026) \u00b7 BUCKET(v,size). Operators: + - * / % &gt; &lt; == &amp;&amp; || ? :</p>' +
+    '<details class="pro-note" style="margin-bottom:4px"><summary style="cursor:pointer">Functions and operators</summary><div style="margin-top:6px;line-height:1.7">' +
+    '<strong>Logic</strong> IF(cond,a,b) \u00b7 COALESCE(a,b,\u2026)<br><strong>Math</strong> ROUND(v,d) \u00b7 FLOOR \u00b7 CEIL \u00b7 ABS \u00b7 SQRT \u00b7 LOG \u00b7 POWER(v,p) \u00b7 MIN(a,b,\u2026) \u00b7 MAX(a,b,\u2026) \u00b7 DIVIDE(a,b) (blank when dividing by zero) \u00b7 BUCKET(v,size)<br>' +
+    '<strong>Text</strong> UPPER \u00b7 LOWER \u00b7 TRIM \u00b7 LEN \u00b7 LEFT(v,n) \u00b7 RIGHT(v,n) \u00b7 CONTAINS(v,text) \u00b7 REPLACE(v,find,with) \u00b7 CONCAT(a,b,\u2026)<br><strong>Dates</strong> YEAR \u00b7 QUARTER \u00b7 MONTH \u00b7 DAY \u00b7 WEEKDAY \u00b7 DAYS(end,start)<br>' +
+    '<strong>Operators</strong> + - * / % &gt; &lt; &gt;= &lt;= == != &amp;&amp; || ! ? :</div></details>' +
     '<p class="pro-note" style="margin:10px 0 4px">Columns (click to insert):</p><div class="field-check-list" id="proCalcCols">' +
     f.map(function(n){ return '<button type="button" class="field-check" data-ins="' + escapeHtml(n) + '">' + escapeHtml(n) + '</button>'; }).join('') + '</div>' +
     '<p class="pro-note" id="proCalcPreview" style="margin-top:12px"></p>' +
@@ -431,7 +464,7 @@ Pro.renderCalc = function(box){
   if (editing) preview();
   goBtn().addEventListener('click', function(){
     try {
-      if (editing) { if (Pro.editCalc(editing.name, ex.value)) { UI.toast('Updated \u201c' + editing.name + '\u201d'); Pro.render('calc'); } return; }
+      if (editing) { var nn = nmIn.value.trim(); if (Pro.editCalc(editing.name, ex.value, nn)) { UI.toast(nn && nn !== editing.name ? 'Renamed to \u201c' + nn + '\u201d and updated' : 'Updated \u201c' + editing.name + '\u201d'); Pro.render('calc'); } return; }
       var nm = nmIn.value; Pro.addCalcColumn(nm, ex.value); UI.toast('Added column \u201c' + nm.trim() + '\u201d'); Pro.render('calc');
     }
     catch (e) { pv.className = 'pro-err'; pv.textContent = e.message; }

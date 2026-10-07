@@ -15,8 +15,14 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
 - **Data panel** (table icon or `D`)
   - **Rows**: a searchable, sortable table of the rows that pass the current dashboard filters. Loads 500 rows at a time, and you can download exactly those rows as CSV
   - **Profile**: for each column, its type, distinct count, how complete it is, and a summary (min/median/mean/max, date range, or top values). "Chart it" adds a chart for that column
-  - **Calculated column**: formulas such as `ROUND([Revenue] / [Units], 2)` or `IF([Revenue] > 20000, "Big", "Small")`, with a live preview. Available functions: `IF ROUND ABS LOG UPPER LOWER YEAR MONTH CONCAT BUCKET`. Formulas are sandboxed: no statements, assignments or globals. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
-  - **Manage formulas**: every formula column in the current data is listed with **Edit** and **Delete**. Editing recalculates the column and any formula columns built on it. Deleting is blocked while another formula depends on the column, and asks before removing charts that use it
+  - **Calculated column**: formulas such as `ROUND([Revenue] / [Units], 2)` or `IF([Revenue] > 20000, "Big", "Small")`, with a live preview. Available functions (the list is in a collapsible help panel in the tab):
+    - Logic: `IF COALESCE`
+    - Math: `ROUND FLOOR CEIL ABS SQRT LOG POWER MIN MAX DIVIDE BUCKET`. `DIVIDE` returns blank when dividing by zero
+    - Text: `UPPER LOWER TRIM LEN LEFT RIGHT CONTAINS REPLACE CONCAT`. `CONTAINS` ignores case
+    - Dates: `YEAR QUARTER MONTH DAY WEEKDAY DAYS(end, start)`
+
+    Column names can't contain `[` or `]`. Formulas are sandboxed: no statements, assignments or globals. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
+  - **Manage formulas**: every formula column in the current data is listed with **Edit** and **Delete**. Editing can change the formula and the name. It recalculates the column and any formula columns built on it. A rename also updates the formulas that reference it, the charts, chart titles and filters. Deleting is blocked while another formula depends on the column, and asks before removing charts that use it
   - **Formula memory**: formulas are remembered in localStorage (`draw-pro-calc`). When you load a fresh file that has the columns a remembered formula needs, the tab offers **Add them** to recreate those formulas in one click
   - **Saved views**: save the charts, layout, filters and calculated-column formulas under a name in localStorage, then apply them to any file that has the same source columns. Formula columns are recreated automatically when the view is applied, so a fresh file doesn't need them re-entered
 - **KPI card** chart: a big number (sum/avg/count) with an optional date trend sparkline and a change against the previous period
@@ -51,7 +57,7 @@ index.html        core app (single file, no build step)
 js/pro.js         pro layer: data panel, formulas, views, KPI, palette, present
 js/workbench.js   filter bar, drag reorder, annotations, combine, group/pivot, PDF
 vendor/           echarts, papaparse, xlsx, hyparquet (+compressors)
-fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, latin subset from Fontsource); falls back to system fonts
+fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, latin + latin-ext from Fontsource, split by unicode-range); falls back to system fonts
 ```
 
 ## Entry
@@ -66,5 +72,5 @@ Saved view shape: `{ name, at, source, calc: [{ name, expr }], layout: { v, f, p
 ## Not yet implemented / next steps
 - Short links for large datasets: needs a server-side store, which this static site doesn't have
 - Remembered formulas are offered on a fresh file but not added automatically; this is deliberate, so the raw data isn't changed silently
-- Renaming a formula column isn't supported. Delete it and add it again under the new name
-- Fonts are latin-only subsets. Add latin-ext files if you need extended characters
+- Plain (non-formula) columns can't be renamed in the app
+- Fonts cover latin and latin-ext. Other scripts (Cyrillic, Greek, CJK) use system fonts
