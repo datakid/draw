@@ -12,8 +12,13 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
 - Export: PNG, SVG, copy image, dashboard PNG, `.draw.json`
 
 ### Pro layer (`js/pro.js`)
-- **Data panel** (table icon or `D`)
-  - **Rows**: a searchable, sortable table of the rows that pass the current dashboard filters. Loads 500 rows at a time, and you can download exactly those rows as CSV
+- **Data panel** (table icon or `D` toggles it)
+  - A solid panel docked below the charts, so you see the data and the charts together. It reads clearly in light and dark themes
+  - Drag the grip (or focus it and use ↑/↓) to resize; double-click resets it. The height and the expanded state are saved (`draw-pro-dock`)
+  - The expand button makes it full screen; the same button docks it again. `Esc` closes it, and ←/→ switch tabs
+  - The Rows and Profile tabs refresh as soon as you click or change filters on a chart. The table keeps its scroll position and search
+  - After Combine or Group, the panel shows the resulting rows
+  - **Rows**: a searchable, sortable table of the rows that pass the current dashboard filters. It has row numbers, zebra striping, a sticky header and right-aligned numbers, and blank cells show as `—`. A count line shows the active filters with a **Clear** link. It loads 500 rows at a time, and you can download exactly those rows as CSV
   - **Profile**: for each column, its type, distinct count, how complete it is, and a summary (min/median/mean/max, date range, or top values). "Chart it" adds a chart for that column
   - **Calculated column**: formulas such as `ROUND([Revenue] / [Units], 2)` or `IF([Revenue] > 20000, "Big", "Small")`, with a live preview. Available functions (the list is in a collapsible help panel in the tab):
     - Logic: `IF COALESCE`

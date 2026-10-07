@@ -499,7 +499,7 @@ function applyCombined(rows, fields, label, msg){
   var ok = UI.restoreDashboardState({ version: DRAW_SCHEMA, rows: rows, fields: fields, sourceName: label,
     panels: UI.panels.map(function(p){ return { id: p.id, spec: p.spec }; }), filters: Filters.list, activeIndex: UI.activeIndex }, label);
   if (!ok) return;
-  UI.pushCommand(); Pro.close();
+  UI.pushCommand(); Pro.showResult();
   UI.toast(msg, { label: 'Undo', onClick: function(){ UI.undo(); } });
 }
 W.append = function(addSource){
@@ -591,8 +591,8 @@ Pro.renderers.group = function(box){
     var r = W.groupBy(s, false);
     if (r.error) { UI.toast(r.error); return; }
     var label = (Store.get().sourceName || 'Data') + ' (grouped)';
-    Pro.close();
     UI.applyRows(r.rows, r.fields, label, 'Grouped into ' + r.rows.length.toLocaleString() + ' rows');
+    Pro.showResult();
   });
 };
 
