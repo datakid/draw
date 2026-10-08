@@ -26,7 +26,7 @@ Drop a file and have a good chart within about 10 seconds. Then keep working wit
     - Text: `UPPER LOWER TRIM LEN LEFT RIGHT CONTAINS REPLACE CONCAT`. `CONTAINS` ignores case
     - Dates: `YEAR QUARTER MONTH DAY WEEKDAY DAYS(end, start)`
 
-    Column names can't contain `[` or `]`. Formulas are sandboxed: no statements, assignments, globals or escape sequences outside quoted text. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
+    Column names can't contain `[` or `]`. Formulas are sandboxed: only the functions above, `[columns]`, numbers, quoted text, `true`/`false`/`null` and the listed operators are accepted. Function names are upper case. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
   - **Manage formulas**: every formula column in the current data is listed with **Edit** and **Delete**. Editing can change the formula and the name. It recalculates the column and any formula columns built on it. A rename also updates the formulas that reference it, the charts, chart titles and filters. Deleting is blocked while another formula depends on the column, and asks before removing charts that use it
   - **Formula memory**: formulas are remembered in localStorage (`draw-pro-calc`). When you load a fresh file that has the columns a remembered formula needs, the tab offers **Add them** to recreate those formulas in one click
   - **Saved views**: save the charts, layout, filters and calculated-column formulas under a name in localStorage, then apply them to any file that has the same source columns. Formula columns are recreated automatically when the view is applied, so a fresh file doesn't need them re-entered
@@ -62,7 +62,22 @@ index.html        core app (single file, no build step)
 js/pro.js         pro layer: data panel, formulas, views, KPI, palette, present
 js/workbench.js   filter bar, drag reorder, annotations, combine, group/pivot, PDF
 vendor/           echarts, papaparse, xlsx, hyparquet (+compressors)
-fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, latin + latin-ext from Fontsource, split by unicode-range); falls back to system fonts
+fonts/            DM Sans 400/500/600, Instrument Serif 400 + italic (woff2, latin + latin-ext, from Fontsource)
+```
+
+### Fonts
+The `@font-face` rules in `index.html` load these 10 files. Missing files fall back to system fonts.
+```
+fonts/dm-sans/dm-sans-latin-400-normal.woff2
+fonts/dm-sans/dm-sans-latin-ext-400-normal.woff2
+fonts/dm-sans/dm-sans-latin-500-normal.woff2
+fonts/dm-sans/dm-sans-latin-ext-500-normal.woff2
+fonts/dm-sans/dm-sans-latin-600-normal.woff2
+fonts/dm-sans/dm-sans-latin-ext-600-normal.woff2
+fonts/instrument-serif/instrument-serif-latin-400-normal.woff2
+fonts/instrument-serif/instrument-serif-latin-ext-400-normal.woff2
+fonts/instrument-serif/instrument-serif-latin-400-italic.woff2
+fonts/instrument-serif/instrument-serif-latin-ext-400-italic.woff2
 ```
 
 ## Entry

@@ -225,6 +225,8 @@ Pro.calcAllowed = function(name){
   return st.rawFields.filter(function(f){ return names.indexOf(f) < 0; }).concat(names.slice(0, idx));
 };
 
+Pro.ALLOWED = {};
+'IF COALESCE ROUND FLOOR CEIL ABS SQRT LOG POWER MIN MAX DIVIDE BUCKET UPPER LOWER TRIM LEN LEFT RIGHT CONTAINS REPLACE CONCAT YEAR QUARTER MONTH DAY WEEKDAY DAYS $c true false null'.split(' ').forEach(function(k){ Pro.ALLOWED[k] = 1; });
 Pro.compile = function(expr, fields){
   if (!String(expr || '').trim()) throw new Error('Write a formula first');
   var refs = [];
@@ -234,7 +236,13 @@ Pro.compile = function(expr, fields){
     return '$c(' + (refs.length - 1) + ')';
   });
   var stripped = bare.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""');
-  if (/[;{}`\[\]=\\]/.test(stripped.replace(/[=!]==?|[<>]=/g, '')) || /\b(function|window|document|globalThis|self|fetch|eval|import|constructor|prototype|new|this)\b|__proto__/.test(stripped)) throw new Error('That formula uses something not allowed');
+  var unknown = null;
+  var rest = stripped.replace(/(\d*\.?\d+(?:e[+-]?\d+)?)|([A-Za-z_$][\w$]*)/gi, function(m, n, id){
+    if (id && !Pro.ALLOWED[id] && unknown === null) unknown = id;
+    return ' ';
+  });
+  if (unknown !== null) throw new Error(/^[A-Za-z]+$/.test(unknown) && Pro.ALLOWED[unknown.toUpperCase()] ? 'Functions are upper case: ' + unknown.toUpperCase() : '\u201c' + unknown + '\u201d isn\u2019t a known function. Put column names in [square brackets]');
+  if (/[^\s+\-*\/%<>=!&|?:,()"]/.test(rest) || /=/.test(rest.replace(/[=!]==?|[<>]=/g, ''))) throw new Error('That formula uses something not allowed');
   var helpers = 'var num=function(v){if(v==null||v==="")return null;if(typeof v==="number")return isFinite(v)?v:null;if(typeof v==="boolean"||typeof v==="object")return null;var s=String(v).trim().replace(/^\\((.*)\\)$/,"-$1").replace(/[$\u20ac\u00a3,%\\s]/g,"");if(s==="")return null;var n=Number(s);return isNaN(n)?null:n;};' +
     'var $c=function(i){var x=r[$refs[i]];var n=num(x);return n==null?x:n;};' +
     'var IF=function(c,a,b){return c?a:b;};var ROUND=function(v,d){var p=Math.pow(10,d||0);return Math.round(num(v)*p)/p;};' +
