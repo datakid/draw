@@ -234,7 +234,7 @@ Pro.compile = function(expr, fields){
     return '$c(' + (refs.length - 1) + ')';
   });
   var stripped = bare.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '""');
-  if (/[;{}`\[\]=]/.test(stripped.replace(/[=!]==?|[<>]=/g, '')) || /\b(function|window|document|globalThis|self|fetch|eval|import|constructor|prototype|new|this)\b|__proto__/.test(stripped)) throw new Error('That formula uses something not allowed');
+  if (/[;{}`\[\]=\\]/.test(stripped.replace(/[=!]==?|[<>]=/g, '')) || /\b(function|window|document|globalThis|self|fetch|eval|import|constructor|prototype|new|this)\b|__proto__/.test(stripped)) throw new Error('That formula uses something not allowed');
   var helpers = 'var num=function(v){if(v==null||v==="")return null;if(typeof v==="number")return isFinite(v)?v:null;if(typeof v==="boolean"||typeof v==="object")return null;var s=String(v).trim().replace(/^\\((.*)\\)$/,"-$1").replace(/[$\u20ac\u00a3,%\\s]/g,"");if(s==="")return null;var n=Number(s);return isNaN(n)?null:n;};' +
     'var $c=function(i){var x=r[$refs[i]];var n=num(x);return n==null?x:n;};' +
     'var IF=function(c,a,b){return c?a:b;};var ROUND=function(v,d){var p=Math.pow(10,d||0);return Math.round(num(v)*p)/p;};' +
@@ -598,7 +598,12 @@ Pro.renderers.profile = function(b){ Pro.renderProfile(b); };
 Pro.renderers.calc = function(b){ Pro.renderCalc(b); };
 Pro.renderers.views = function(b){ Pro.renderViews(b); };
 Pro.VIEWS_KEY = 'draw-pro-views';
-Pro.loadViews = function(){ try { return JSON.parse(localStorage.getItem(Pro.VIEWS_KEY)) || []; } catch (e) { return []; } };
+Pro.loadViews = function(){
+  try {
+    var v = JSON.parse(localStorage.getItem(Pro.VIEWS_KEY));
+    return Array.isArray(v) ? v.filter(function(x){ return x && typeof x.name === 'string' && x.layout && Array.isArray(x.layout.p); }) : [];
+  } catch (e) { return []; }
+};
 Pro.saveViews = function(v){ try { localStorage.setItem(Pro.VIEWS_KEY, JSON.stringify(v)); return true; } catch (e) { return false; } };
 Pro.renderViews = function(box){
   var views = Pro.loadViews(), fields = Store.get().rawFields || [];

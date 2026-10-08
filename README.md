@@ -1,6 +1,6 @@
 # Draw — instant charts from any data file
 
-Not Power BI, not Tableau. Drop a file and have a good chart within about 10 seconds. Then keep working with it: look at the rows, clean and derive columns, build a dashboard, save it as a view, and present it.
+Drop a file and have a good chart within about 10 seconds. Then keep working with it: look at the rows, clean and derive columns, build a dashboard, save it as a view, and present it.
 
 ## Features
 - Load data by drag and drop, pasting a table, a file picker, typing it in, or a sample dataset
@@ -26,7 +26,7 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
     - Text: `UPPER LOWER TRIM LEN LEFT RIGHT CONTAINS REPLACE CONCAT`. `CONTAINS` ignores case
     - Dates: `YEAR QUARTER MONTH DAY WEEKDAY DAYS(end, start)`
 
-    Column names can't contain `[` or `]`. Formulas are sandboxed: no statements, assignments or globals. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
+    Column names can't contain `[` or `]`. Formulas are sandboxed: no statements, assignments, globals or escape sequences outside quoted text. The new column becomes part of the dataset, so it persists, can be undone, and is included in share links
   - **Manage formulas**: every formula column in the current data is listed with **Edit** and **Delete**. Editing can change the formula and the name. It recalculates the column and any formula columns built on it. A rename also updates the formulas that reference it, the charts, chart titles and filters. Deleting is blocked while another formula depends on the column, and asks before removing charts that use it
   - **Formula memory**: formulas are remembered in localStorage (`draw-pro-calc`). When you load a fresh file that has the columns a remembered formula needs, the tab offers **Add them** to recreate those formulas in one click
   - **Saved views**: save the charts, layout, filters and calculated-column formulas under a name in localStorage, then apply them to any file that has the same source columns. Formula columns are recreated automatically when the view is applied, so a fresh file doesn't need them re-entered
@@ -34,7 +34,7 @@ Not Power BI, not Tableau. Drop a file and have a good chart within about 10 sec
 - **Command palette** (`Ctrl/Cmd+K` or `?`): every action, plus the suggested charts for the current data
 - **Duplicate chart** button on each card, and commands to move the active chart earlier or later
 - **Presentation mode** (`P`): the dashboard in full screen
-- Dashboards now hold up to 12 charts (previously 6)
+- Dashboards hold up to 12 charts
 - Shortcuts: `D` data, `N` new chart, `E` edit, `P` present, `Ctrl/Cmd+Z` undo
 
 ### Workbench layer (`js/workbench.js`)
