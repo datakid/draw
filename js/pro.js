@@ -108,7 +108,7 @@ registerChart({
     }
     var agg = yCol ? (spec.aggregation || 'sum') : 'count';
     var value = agg === 'count' ? cnt : agg === 'avg' ? (cnt ? sum / cnt : NaN) : sum;
-    var series = [], xAxis = { type: 'category', show: false, data: [] }, deltaText = '';
+    var series = [], xAxis = { type: 'category', show: false, boundaryGap: false, data: [] }, deltaText = '';
     if (spec.xField && F.findColumn(columns, spec.xField)){
       var ts = Spec.groupByDate(columns, spec.xField, spec.yField, agg, mask, null, spec.grain);
       xAxis.data = ts.map(function(r){ return r.label; });
@@ -120,7 +120,7 @@ registerChart({
     } else series.push({ type: 'line', data: [isNaN(value) ? null : value], symbol: 'none', lineStyle: { opacity: 0 }, silent: true, tooltip: { show: false } });
     var accent = readCSSVar('--accent'), jade = readCSSVar('--jade');
     return {
-      grid: { left: 0, right: 0, bottom: 0, height: '38%' },
+      grid: { left: 0, right: 0, bottom: 6, height: '38%' },
       xAxis: xAxis, yAxis: { type: 'value', show: false, scale: true },
       tooltip: { trigger: 'axis', valueFormatter: F.fmtTooltip },
       graphic: [
