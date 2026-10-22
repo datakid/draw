@@ -124,8 +124,8 @@ registerChart({
       xAxis: xAxis, yAxis: { type: 'value', show: false, scale: true },
       tooltip: { trigger: 'axis', valueFormatter: F.fmtTooltip },
       graphic: [
-        { type: 'text', left: 8, top: 8, style: { text: F.fmtTooltip(value), fill: PALETTE.ink, fontSize: 52, fontWeight: 600, fontFamily: 'DM Sans, sans-serif' } },
-        { type: 'text', left: 10, top: 76, style: { text: deltaText || (cnt.toLocaleString() + ' rows'), fill: deltaText ? (deltaText.charAt(0) === '\u25b2' ? jade : accent) : PALETTE.ink2, fontSize: 14 } }
+        { type: 'text', left: 8, top: 8, style: { text: F.fmtTooltip(value), fill: PALETTE.ink, fontSize: 52, lineHeight: 52, fontWeight: 600, fontFamily: 'DM Sans, sans-serif' } },
+        { type: 'text', left: 10, top: 76, style: { text: deltaText || (cnt.toLocaleString() + ' rows'), fill: deltaText ? (deltaText.charAt(0) === '\u25b2' ? jade : accent) : PALETTE.ink2, fontSize: 14, lineHeight: 14 } }
       ],
       series: series
     };
